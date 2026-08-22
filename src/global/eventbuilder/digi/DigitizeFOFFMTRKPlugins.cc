@@ -20,13 +20,13 @@ void InitPlugin_digiFOFFMTRK(JApplication* app) {
   //Digitized hits, especially for thresholds
   app->Add(new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
       JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>::TypedWiring{
-          .m_tag                 = "ForwardOffMTrackerRawHits_TK",
+          .m_tag                 = "ForwardOffMTrackerRawHitDigi",
           .m_default_input_tags  = {"EventHeader", "ForwardOffMTrackerHits"},
-          .m_default_output_tags = {"ForwardOffMTrackerRawHits_TK",
+          .m_default_output_tags = {"ForwardOffMTrackerRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-                                    "ForwardOffMTrackerRawHitLinks_TK",
+                                    "ForwardOffMTrackerRawHitLinkDigi",
 #endif
-                                    "ForwardOffMTrackerRawHitAssociations_TK"},
+                                    "ForwardOffMTrackerRawHitAssociationDigi"},
           .m_default_cfg =
               {
                   .threshold      = 10.0 * dd4hep::keV,
@@ -37,9 +37,9 @@ void InitPlugin_digiFOFFMTRK(JApplication* app) {
 
   app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
       JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>::TypedWiring{
-          .m_tag                 = "ForwardOffMTrackerRecHits_TK",
-          .m_default_input_tags  = {"ForwardOffMTrackerRawHits_TK"},
-          .m_default_output_tags = {"ForwardOffMTrackerRecHits_TK"},
+          .m_tag                 = "ForwardOffMTrackerRecHitDigi",
+          .m_default_input_tags  = {"ForwardOffMTrackerRawHitDigi"},
+          .m_default_output_tags = {"ForwardOffMTrackerRecHitDigi"},
           .m_default_cfg =
               {
                   .timeResolution = 8,
@@ -49,9 +49,9 @@ void InitPlugin_digiFOFFMTRK(JApplication* app) {
 
   app->Add(new JOmniFactoryGeneratorT<MatrixTransferStatic_factory>(
       JOmniFactoryGeneratorT<MatrixTransferStatic_factory>::TypedWiring{
-          .m_tag                 = "ForwardOffMRecParticles_TK",
-          .m_default_input_tags  = {"MCParticles", "ForwardOffMTrackerRecHits_TK"},
-          .m_default_output_tags = {"ForwardOffMRecParticles_TK"},
+          .m_tag                 = "ForwardOffMRecParticleDigi",
+          .m_default_input_tags  = {"MCParticles", "ForwardOffMTrackerRecHitDigi"},
+          .m_default_output_tags = {"ForwardOffMRecParticleDigi"},
           .m_default_cfg =
               {
                   .matrix_configs = {{
@@ -81,7 +81,7 @@ void InitPlugin_digiFOFFMTRK(JApplication* app) {
                   .hit2minZ = 24512.0,
                   .hit2maxZ = 24535.0,
 
-                  .readout = "ForwardOffMTrackerRecHits_TK",
+                  .readout = "ForwardOffMTrackerRecHitDigi",
               },
           .level = JEventLevel::Timeslice},
       app));

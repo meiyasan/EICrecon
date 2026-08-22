@@ -5,12 +5,9 @@
 #include <JANA/JApplication.h>
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 
-#include "HitChecker.h"
-#include "timeAlignmentFactory.h"
-#include "CalTimeAlignmentFactory.h"
-#include "TimeframeSplitter.h"
-
-// #include "TimeCoincidenceFactory.h"
+#include "factories/eventbuilder/TimeAlign_factory.h" // defines Trk/Cal TimeAlign_factory aliases
+#include "factories/eventbuilder/EventBuilder_factory.h"
+#include "EventUnfolder.h"
 
 
 void InitPlugin_digiBTOF(JApplication* app);
@@ -58,85 +55,85 @@ void InitPlugin(JApplication* app) {
   //     "VertexBarrelHits_aligned"};
 
   std::vector<std::string> m_simtrackerhit_collection_names_aligned = {
-      "TOFBarrelRecHits_TK_aligned",
-      "TOFEndcapRecHits_TK_aligned",
-      "MPGDBarrelRecHits_TK_aligned",
-      "OuterMPGDBarrelRecHits_TK_aligned",
-      "BackwardMPGDEndcapRecHits_TK_aligned",
-      "ForwardMPGDEndcapRecHits_TK_aligned",
-      "SiBarrelVertexRecHits_TK_aligned",
-      "SiBarrelTrackerRecHits_TK_aligned",
-      "SiEndcapTrackerRecHits_TK_aligned",     
-      "B0TrackerRecHits_TK_aligned"
+      "TOFBarrelTimeAlignRecHits",
+      "TOFEndcapTimeAlignRecHits",
+      "MPGDBarrelTimeAlignRecHits",
+      "OuterMPGDBarrelTimeAlignRecHits",
+      "BackwardMPGDEndcapTimeAlignRecHits",
+      "ForwardMPGDEndcapTimeAlignRecHits",
+      "SiBarrelVertexTimeAlignRecHits",
+      "SiBarrelTrackerTimeAlignRecHits",
+      "SiEndcapTrackerTimeAlignRecHits",     
+      "B0TrackerTimeAlignRecHits"
     };
-    // "TaggerTrackerRecHits_TK_aligned",
-    // "DIRCBarRecHits_TK_aligned",
-    //   "DRICHRecHits_TK_aligned",
-    //   "ForwardOffMTrackerRecHits_TK_aligned",
-    //   "ForwardRomanPotRecHits_TK_aligned",
-    //   "LumiSpecTrackerRecHits_TK_aligned",
-    //   "RICHEndcapNRecHits_TK_aligned"
+    // "TaggerTrackerTimeAlignRecHits",
+    // "DIRCBarTimeAlignRecHits",
+    //   "DRICHTimeAlignRecHits",
+    //   "ForwardOffMTrackerTimeAlignRecHits",
+    //   "ForwardRomanPotTimeAlignRecHits",
+    //   "LumiSpecTrackerTimeAlignRecHits",
+    //   "RICHEndcapNTimeAlignRecHits"
 
   std::vector<std::string> m_simtrackerhit_collection_names = {
-    "TOFBarrelRecHits_TK",
-    "TOFEndcapRecHits_TK",
-    "MPGDBarrelRecHits_TK",
-    "OuterMPGDBarrelRecHits_TK",
-    "BackwardMPGDEndcapRecHits_TK",
-    "ForwardMPGDEndcapRecHits_TK",
-    "SiBarrelVertexRecHits_TK",
-    "SiBarrelTrackerRecHits_TK",
-    "SiEndcapTrackerRecHits_TK",
-    "B0TrackerRecHits_TK"
+    "TOFBarrelRecHitDigi",
+    "TOFEndcapRecHitDigi",
+    "MPGDBarrelRecHitDigi",
+    "OuterMPGDBarrelRecHitDigi",
+    "BackwardMPGDEndcapRecHitDigi",
+    "ForwardMPGDEndcapRecHitDigi",
+    "SiBarrelVertexRecHitDigi",
+    "SiBarrelTrackerRecHitDigi",
+    "SiEndcapTrackerRecHitDigi",
+    "B0TrackerRecHitDigi"
     };   
-    // "TaggerTrackerRecHits_TK",
-    // "DIRCBarRecHits_TK",
-    // "DRICHRecHits_TK",
-    // "ForwardOffMTrackerRecHits_TK",
-    // "ForwardRomanPotRecHits_TK",
-    // "LumiSpecTrackerRecHits_TK",
-    // "RICHEndcapNRecHits_TK"
+    // "TaggerTrackerRecHitDigi",
+    // "DIRCBarRecHitDigi",
+    // "DRICHRecHitDigi",
+    // "ForwardOffMTrackerRecHitDigi",
+    // "ForwardRomanPotRecHitDigi",
+    // "LumiSpecTrackerRecHitDigi",
+    // "RICHEndcapNRecHitDigi"
 
 
   std::vector<std::string> m_simcalocluster_collection_names_aligned = {
-      "B0ECalClusters_TK_aligned",
-      "EcalBarrelClusters_TK_aligned",
-      "EcalEndcapNClusters_TK_aligned",
-      "EcalEndcapPClusters_TK_aligned"
+      "B0ECalTimeAlignClusters",
+      "EcalBarrelTimeAlignClusters",
+      "EcalEndcapNTimeAlignClusters",
+      "EcalEndcapPTimeAlignClusters"
     };
-    // "EcalFarForwardZDCClusters_TK_aligned",
-    //   "EcalLumiSpecClusters_TK_aligned",
-    //   "HcalBarrelClusters_TK_aligned",
-    //   "HcalEndcapNClusters_TK_aligned",
-    //   "HcalEndcapPInsertClusters_TK_aligned",
-    //   "HcalFarForwardZDCClusters_TK_aligned",
-    //   "LFHCALClusters_TK_aligned"
+    // "EcalFarForwardZDCTimeAlignClusters",
+    //   "EcalLumiSpecTimeAlignClusters",
+    //   "HcalBarrelTimeAlignClusters",
+    //   "HcalEndcapNTimeAlignClusters",
+    //   "HcalEndcapPInsertTimeAlignClusters",
+    //   "HcalFarForwardZDCTimeAlignClusters",
+    //   "LFHCALTimeAlignClusters"
 
   std::vector<std::string> m_simcalocluster_collection_names = {
-    "B0ECalClusters_TK",
-    "EcalBarrelClusters_TK",
-    "EcalEndcapNClusters_TK",
-    "EcalEndcapPClusters_TK"
+    "B0ECalClusterDigi",
+    "EcalBarrelClusterDigi",
+    "EcalEndcapNClusterDigi",
+    "EcalEndcapPClusterDigi"
     };
 
-    // "EcalFarForwardZDCClusters_TK",
-    // "EcalLumiSpecClusters_TK",
-    // "HcalBarrelClusters_TK",
-    // "HcalEndcapNClusters_TK",
-    // "HcalEndcapPInsertClusters_TK",
-    // "HcalFarForwardZDCClusters_TK",
-    // "LFHCALClusters_TK",
-    // "EcalBarrelImagingClusters_TK",
-    // "EcalBarrelScFiClusters_TK",
-    // "EcalEndcapNImagingClusters_TK",
-    // "EcalEndcapPImagingClusters_TK",
-    // "EcalFarForwardZDCImagingClusters_TK",
-    // "EcalLumiSpecImagingClusters_TK"
+    // "EcalFarForwardZDCClusterDigi",
+    // "EcalLumiSpecClusterDigi",
+    // "HcalBarrelClusterDigi",
+    // "HcalEndcapNClusterDigi",
+    // "HcalEndcapPInsertClusterDigi",
+    // "HcalFarForwardZDCClusterDigi",
+    // "LFHCALClusterDigi",
+    // "EcalBarrelImagingClusterDigi",
+    // "EcalBarrelScFiClusterDigi",
+    // "EcalEndcapNImagingClusterDigi",
+    // "EcalEndcapPImagingClusterDigi",
+    // "EcalFarForwardZDCImagingClusterDigi",
+    // "EcalLumiSpecImagingClusterDigi"
 
   InitJANAPlugin(app);
 
-  app->Add(new JOmniFactoryGeneratorT<timeAlignmentFactory>(
-      JOmniFactoryGeneratorT<timeAlignmentFactory>::TypedWiring{
+  app->Add(new JOmniFactoryGeneratorT<TrkTimeAlign_factory>(
+      JOmniFactoryGeneratorT<TrkTimeAlign_factory>::TypedWiring{
           .m_tag                 = "timeAlignment",
           .m_default_input_tags  = m_simtrackerhit_collection_names,
           .m_default_output_tags = m_simtrackerhit_collection_names_aligned,
@@ -144,8 +141,8 @@ void InitPlugin(JApplication* app) {
       },
       app));
 
-    app->Add(new JOmniFactoryGeneratorT<CalTimeAlignmentFactory>(
-      JOmniFactoryGeneratorT<CalTimeAlignmentFactory>::TypedWiring{
+    app->Add(new JOmniFactoryGeneratorT<CalTimeAlign_factory>(
+      JOmniFactoryGeneratorT<CalTimeAlign_factory>::TypedWiring{
           .m_tag                 = "CalTimeAlignment",
           .m_default_input_tags  = m_simcalocluster_collection_names,
           .m_default_output_tags = m_simcalocluster_collection_names_aligned,
@@ -153,8 +150,22 @@ void InitPlugin(JApplication* app) {
       },
       app));
 
-  // Unfolder that takes timeframes and splits them into physics events.
-  app->Add(new TimeframeSplitter());
+  // EventBuilder: finds candidate physics events in a time-frame and assigns
+  // each a (t0, dt0). Runs at the Timeslice (time-frame) level. Reads the
+  // time-aligned tracker hits plus MCParticles (for phys/fake labelling).
+  std::vector<std::string> m_eventbuilder_input_tags = m_simtrackerhit_collection_names_aligned;
+  m_eventbuilder_input_tags.push_back("MCParticles");
+  app->Add(new JOmniFactoryGeneratorT<EventBuilder_factory>(
+      JOmniFactoryGeneratorT<EventBuilder_factory>::TypedWiring{
+          .m_tag                 = "eventBuilder",
+          .m_default_input_tags  = m_eventbuilder_input_tags,
+          .m_default_output_tags = {"EventCandidates"},
+          .level                 = JEventLevel::Timeslice,
+      },
+      app));
+
+  // Unfolder that materialises each candidate as a PhysicsEvent (no analysis).
+  app->Add(new EventUnfolder());
 
   // app->Add(new JOmniFactoryGeneratorT<HitChecker>(
   //     jana::components::JOmniFactoryGeneratorT<HitChecker>::TypedWiring{

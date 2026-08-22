@@ -1,5 +1,6 @@
 add_subdirectory(calorimetry)
 add_subdirectory(digi)
+add_subdirectory(eventbuilder)
 add_subdirectory(fardetectors)
 add_subdirectory(meta)
 add_subdirectory(particle_flow)

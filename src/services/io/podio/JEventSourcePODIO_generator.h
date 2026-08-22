@@ -14,11 +14,15 @@ class JEventSourcePODIO_generator : public JEventSourceGenerator {
     source->SetApplication(mApplication);
     source->SetPluginName(GetPluginName());
 
-    // Check if the string "timeslices" appears anywhere in our filename.
-    // If so, we assume the file contains timeslices, otherwise it contains physics events.
-    // Another approach might be to peek at the file's contents
-    if (mApplication->RegisterParameter<bool>("split_timeframes", false,
-                                              "Enable timeframe splitting")) {
+    // When the EventBuilder workflow is enabled (-Peventbuilder=true, alias
+    // -Peventbld=true), read the input at the Timeslice (time-frame) level so
+    // the eventbuilder plugin can build physics events from it; otherwise
+    // read it as ordinary physics events.
+    const bool use_eventbuilder = mApplication->RegisterParameter<bool>(
+        "eventbuilder", false, "Read input as time-frames for the EventBuilder");
+    const bool use_eventbld = mApplication->RegisterParameter<bool>(
+        "eventbld", false, "Alias of eventbuilder");
+    if (use_eventbuilder || use_eventbld) {
       source->SetLevel(JEventLevel::Timeslice);
     } else {
       source->SetLevel(JEventLevel::PhysicsEvent);

@@ -38,44 +38,44 @@ void InitPlugin_digiBTOF(JApplication* app) {
   using namespace eicrecon;
 
   // Digitization
-  app->Add(new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
-      "TOFBarrelRawHits_TK", {"EventHeader", "TOFBarrelHits"},
-      {"TOFBarrelRawHits_TK",
+  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+      "TOFBarrelRawHitDigi", {"EventHeader", "TOFBarrelHits"},
+      {"TOFBarrelRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "TOFBarrelRawHitLinks_TK",
+       "TOFBarrelRawHitLinkDigi",
 #endif
-       "TOFBarrelRawHitAssociations_TK"},
+       "TOFBarrelRawHitAssociationDigi"},
       {
           .threshold      = 6.0 * dd4hep::keV,
           .timeResolution = 0.025, // [ns]
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
   // Convert raw digitized hits into hits with geometry info (ready for tracking)
-  app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
-      "TOFBarrelRecHits_TK", {"TOFBarrelRawHits_TK"}, // Input data collection tags
-      {"TOFBarrelRecHits_TK"},                        // Output data tag
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "TOFBarrelRecHitDigi", {"TOFBarrelRawHitDigi"}, // Input data collection tags
+      {"TOFBarrelRecHitDigi"},                        // Output data tag
       {},
-      app)); // Hit reco default config for factories
+      app))->SetLevel(JEventLevel::Timeslice)); // Hit reco default config for factories
 
   // Convert raw digitized hits into calibrated hits
   // time walk correction is still TBD
-  app->Add(new JOmniFactoryGeneratorT<LGADHitCalibration_factory>(
-      "TOFBarrelCalibratedHits_TK", {"TOFBarrelADCTDC_TK"}, // Input data collection tags
-      {"TOFBarrelCalibratedHits_TK"},                       // Output data tag
+  app->Add((new JOmniFactoryGeneratorT<LGADHitCalibration_factory>(
+      "TOFBarrelCalibratedHitDigi", {"TOFBarrelADCTDCDigi"}, // Input data collection tags
+      {"TOFBarrelCalibratedHitDigi"},                       // Output data tag
       {},
-      app)); // Hit reco default config for factories
+      app))->SetLevel(JEventLevel::Timeslice)); // Hit reco default config for factories
 
   // cluster all hits in a sensor into one hit location
   // Currently it's just a simple weighted average
   // More sophisticated algorithm TBD
-  app->Add(new JOmniFactoryGeneratorT<LGADHitClustering_factory>(
-      "TOFBarrelClusterHits_TK", {"TOFBarrelCalibratedHits_TK"}, // Input data collection tags
-      {"TOFBarrelClusterHits_TK"},                               // Output data tag
-      {}, app));
+  app->Add((new JOmniFactoryGeneratorT<LGADHitClustering_factory>(
+      "TOFBarrelClusterHitDigi", {"TOFBarrelCalibratedHitDigi"}, // Input data collection tags
+      {"TOFBarrelClusterHitDigi"},                               // Output data tag
+      {}, app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add(new JOmniFactoryGeneratorT<SiliconChargeSharing_factory>(
-      "TOFBarrelSharedHits_TK", {"TOFBarrelHits_TK"}, {"TOFBarrelSharedHits_TK"},
+  app->Add((new JOmniFactoryGeneratorT<SiliconChargeSharing_factory>(
+      "TOFBarrelSharedHitDigi", {"TOFBarrelHitDigi"}, {"TOFBarrelSharedHitDigi"},
       {
           .sigma_mode     = SiliconChargeSharingConfig::ESigmaMode::rel,
           .sigma_sharingx = 1,
@@ -83,7 +83,7 @@ void InitPlugin_digiBTOF(JApplication* app) {
           .min_edep       = 0.0 * edm4eic::unit::GeV,
           .readout        = "TOFBarrelHits",
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
   // calculation of the extreme values for Landau distribution can be found on lin 514-520 of
   // https://root.cern.ch/root/html524/src/TMath.cxx.html#fsokrB Landau reaches minimum for mpv =
@@ -97,34 +97,34 @@ void InitPlugin_digiBTOF(JApplication* app) {
   // gain is negative as LGAD voltage is always negative
   const double gain = -adc_range / Vm / landau_min * sigma_analog;
   const int offset  = 3;
-  app->Add(new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimTrackerHit>>(
-      "LGADPulseGeneration_TK", {"TOFBarrelSharedHits_TK"}, {"TOFBarrelSmoothPulses_TK"},
+  app->Add((new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimTrackerHit>>(
+      "LGADPulseGenerationDigi", {"TOFBarrelSharedHitDigi"}, {"TOFBarrelSmoothPulseDigi"},
       {
           .pulse_shape_function = "LandauPulse",
           .pulse_shape_params   = {gain, sigma_analog, offset},
           .ignore_thres         = 0.05 * adc_range,
           .timestep             = 0.01 * edm4eic::unit::ns,
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add(new JOmniFactoryGeneratorT<PulseCombiner_factory>(
-      "TOFBarrelPulseCombiner_TK", {"TOFBarrelSmoothPulses_TK"}, {"TOFBarrelCombinedPulses_TK"},
+  app->Add((new JOmniFactoryGeneratorT<PulseCombiner_factory>(
+      "TOFBarrelPulseCombinerDigi", {"TOFBarrelSmoothPulseDigi"}, {"TOFBarrelCombinedPulseDigi"},
       {
           .minimum_separation = 25 * edm4eic::unit::ns,
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
   double risetime = 0.45 * edm4eic::unit::ns;
-  app->Add(new JOmniFactoryGeneratorT<SiliconPulseDiscretization_factory>(
-      "TOFBarrelPulses_TK", {"TOFBarrelCombinedPulses_TK"}, {"TOFBarrelPulses_TK"},
+  app->Add((new JOmniFactoryGeneratorT<SiliconPulseDiscretization_factory>(
+      "TOFBarrelPulseDigi", {"TOFBarrelCombinedPulseDigi"}, {"TOFBarrelPulseDigi"},
       {
           .EICROC_period = 25 * edm4eic::unit::ns,
           .local_period  = 25 * edm4eic::unit::ns / 1024,
           .global_offset = -offset * sigma_analog + risetime,
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add(new JOmniFactoryGeneratorT<CFDROCDigitization_factory>(
-      "CFDROCDigitization_TK", {"TOFBarrelPulses_TK"}, {"TOFBarrelADCTDC_TK"}, {}, app));
+  app->Add((new JOmniFactoryGeneratorT<CFDROCDigitization_factory>(
+      "CFDROCDigitizationDigi", {"TOFBarrelPulseDigi"}, {"TOFBarrelADCTDCDigi"}, {}, app))->SetLevel(JEventLevel::Timeslice));
 }
 // } // extern "C"

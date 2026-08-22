@@ -174,3 +174,11 @@ src/examples/test_data_generator/__pycache__/
 
 # CodeQL artifacts
 _codeql_detected_source_root
+
+# In-source CMake build artifacts (never commit these)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CMakeConfigureLog.yaml
+cmake.check_cache
+*.bin

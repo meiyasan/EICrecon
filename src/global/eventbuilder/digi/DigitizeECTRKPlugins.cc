@@ -13,7 +13,7 @@
 #include "factories/tracking/TrackerHitReconstruction_factory.h"
 
 // extern "C" {
-void InitPlugin_digiB0TRK(JApplication* app) {
+void InitPlugin_digiECTRK(JApplication* app) {
   InitJANAPlugin(app);
 
   using namespace eicrecon;
@@ -21,17 +21,16 @@ void InitPlugin_digiB0TRK(JApplication* app) {
   // Digitization
   app->Add(new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
       JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>::TypedWiring{
-          .m_tag                 = "B0TrackerRawHits_TK",
-          .m_default_input_tags  = {"EventHeader", "B0TrackerHits"},
-          .m_default_output_tags = {"B0TrackerRawHits_TK",
+          .m_tag                 = "SiEndcapTrackerRawHitDigi",
+          .m_default_input_tags  = {"EventHeader", "TrackerEndcapHits"},
+          .m_default_output_tags = {"SiEndcapTrackerRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-                                    "B0TrackerRawHitLinks_TK",
+                                    "SiEndcapTrackerRawHitLinkDigi",
 #endif
-                                    "B0TrackerRawHitAssociations_TK"},
+                                    "SiEndcapTrackerRawHitAssociationDigi"},
           .m_default_cfg =
               {
-                  .threshold      = 10.0 * dd4hep::keV,
-                  .timeResolution = 8,
+                  .threshold = 0.54 * dd4hep::keV,
               },
           .level = JEventLevel::Timeslice},
       app));
@@ -39,12 +38,12 @@ void InitPlugin_digiB0TRK(JApplication* app) {
   // Convert raw digitized hits into hits with geometry info (ready for tracking)
   app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
       JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>::TypedWiring{
-          .m_tag                 = "B0TrackerRecHits_TK",
-          .m_default_input_tags  = {"B0TrackerRawHits_TK"},
-          .m_default_output_tags = {"B0TrackerRecHits_TK"},
+          .m_tag                 = "SiEndcapTrackerRecHitDigi",
+          .m_default_input_tags  = {"SiEndcapTrackerRawHitDigi"},
+          .m_default_output_tags = {"SiEndcapTrackerRecHitDigi"},
           .m_default_cfg =
               {
-                  .timeResolution = 8,
+                  .timeResolution = 10,
               },
           .level = JEventLevel::Timeslice},
       app));

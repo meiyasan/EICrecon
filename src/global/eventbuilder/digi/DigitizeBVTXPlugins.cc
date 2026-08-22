@@ -21,13 +21,13 @@ void InitPlugin_digiBVTX(JApplication* app) {
   // Digitization
   app->Add(new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
       JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>::TypedWiring{
-          .m_tag                 = "SiBarrelVertexRawHits_TK",
+          .m_tag                 = "SiBarrelVertexRawHitDigi",
           .m_default_input_tags  = {"EventHeader", "VertexBarrelHits"},
-          .m_default_output_tags = {"SiBarrelVertexRawHits_TK",
+          .m_default_output_tags = {"SiBarrelVertexRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-                                    "SiBarrelVertexRawHitLinks_TK",
+                                    "SiBarrelVertexRawHitLinkDigi",
 #endif
-                                    "SiBarrelVertexRawHitAssociations_TK"},
+                                    "SiBarrelVertexRawHitAssociationDigi"},
           .m_default_cfg =
               {
                   .threshold      = 0.54 * dd4hep::keV,
@@ -39,9 +39,9 @@ void InitPlugin_digiBVTX(JApplication* app) {
   // Convert raw digitized hits into hits with geometry info (ready for tracking)
   app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
       JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>::TypedWiring{
-          .m_tag                 = "SiBarrelVertexRecHits_TK",
-          .m_default_input_tags  = {"SiBarrelVertexRawHits_TK"},
-          .m_default_output_tags = {"SiBarrelVertexRecHits_TK"},
+          .m_tag                 = "SiBarrelVertexRecHitDigi",
+          .m_default_input_tags  = {"SiBarrelVertexRawHitDigi"},
+          .m_default_output_tags = {"SiBarrelVertexRecHitDigi"},
           .m_default_cfg =
               {
                   .timeResolution = 10,

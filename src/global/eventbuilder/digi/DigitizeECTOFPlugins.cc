@@ -32,30 +32,30 @@ void InitPlugin_digiECTOF(JApplication* app) {
   using namespace eicrecon;
 
   // Digitization
-  app->Add(new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
-      "TOFEndcapRawHits_TK", {"EventHeader", "TOFEndcapHits"},
-      {"TOFEndcapRawHits_TK",
+  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+      "TOFEndcapRawHitDigi", {"EventHeader", "TOFEndcapHits"},
+      {"TOFEndcapRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "TOFEndcapRawHitLinks_TK",
+       "TOFEndcapRawHitLinkDigi",
 #endif
-       "TOFEndcapRawHitAssociations_TK"},
+       "TOFEndcapRawHitAssociationDigi"},
       {
           .threshold      = 6.0 * dd4hep::keV,
           .timeResolution = 0.025,
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
   // Convert raw digitized hits into hits with geometry info (ready for tracking)
-  app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
-      "TOFEndcapRecHits_TK", {"TOFEndcapRawHits_TK"}, // Input data collection tags
-      {"TOFEndcapRecHits_TK"},                        // Output data tag
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "TOFEndcapRecHitDigi", {"TOFEndcapRawHitDigi"}, // Input data collection tags
+      {"TOFEndcapRecHitDigi"},                        // Output data tag
       {
           .timeResolution = 0.025,
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
   //   app->Add(new JOmniFactoryGeneratorT<SiliconChargeSharing_factory>(
-  //       "TOFEndcapSharedHits_TK", {"TOFEndcapHits_TK"}, {"TOFEndcapSharedHits_TK"},
+  //       "TOFEndcapSharedHitDigi", {"TOFEndcapHitDigi"}, {"TOFEndcapSharedHitDigi"},
   //       {
 
   //           .sigma_mode     = SiliconChargeSharingConfig::ESigmaMode::rel,
@@ -75,7 +75,7 @@ void InitPlugin_digiECTOF(JApplication* app) {
   //   const double gain = -adc_range / Vm / landau_min * sigma_analog;
   //   const int offset  = 3;
   //   app->Add(new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimTrackerHit>>(
-  //       "TOFEndcapSmoothPulses_TK", {"TOFEndcapSharedHits_TK"}, {"TOFEndcapSmoothPulses_TK"},
+  //       "TOFEndcapSmoothPulseDigi", {"TOFEndcapSharedHitDigi"}, {"TOFEndcapSmoothPulseDigi"},
   //       {
   //           .pulse_shape_function = "LandauPulse",
   //           .pulse_shape_params   = {gain, sigma_analog, offset},
@@ -85,7 +85,7 @@ void InitPlugin_digiECTOF(JApplication* app) {
   //       app));
 
   //   app->Add(new JOmniFactoryGeneratorT<PulseCombiner_factory>(
-  //       "TOFEndcapCombinedPulses_TK", {"TOFEndcapSmoothPulses_TK"}, {"TOFEndcapCombinedPulses_TK"},
+  //       "TOFEndcapCombinedPulseDigi", {"TOFEndcapSmoothPulseDigi"}, {"TOFEndcapCombinedPulseDigi"},
   //       {
   //           .minimum_separation = 25 * edm4eic::unit::ns,
   //       },
@@ -93,7 +93,7 @@ void InitPlugin_digiECTOF(JApplication* app) {
 
   //   double risetime = 0.45 * edm4eic::unit::ns;
   //   app->Add(new JOmniFactoryGeneratorT<SiliconPulseDiscretization_factory>(
-  //       "TOFEndcapPulses_TK", {"TOFEndcapCombinedPulses_TK"}, {"TOFEndcapPulses_TK"},
+  //       "TOFEndcapPulseDigi", {"TOFEndcapCombinedPulseDigi"}, {"TOFEndcapPulseDigi"},
   //       {
   //           .EICROC_period = 25 * edm4eic::unit::ns,
   //           .local_period  = 25 * edm4eic::unit::ns / 1024,
@@ -102,6 +102,6 @@ void InitPlugin_digiECTOF(JApplication* app) {
   //       app));
 
   //   app->Add(new JOmniFactoryGeneratorT<EICROCDigitization_factory>(
-  //       "TOFEndcapADCTDC_TK", {"TOFEndcapPulses_TK"}, {"TOFEndcapADCTDC_TK"}, {}, app));
+  //       "TOFEndcapADCTDCDigi", {"TOFEndcapPulseDigi"}, {"TOFEndcapADCTDCDigi"}, {}, app));
 }
 // } // extern "C"

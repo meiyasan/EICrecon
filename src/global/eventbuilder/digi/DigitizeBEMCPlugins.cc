@@ -46,6 +46,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
 
   using namespace eicrecon;
 
+  // Register all factories below at the Timeslice (time-frame) level.
+#define ADD_TS(theApp, ...) theApp->Add((__VA_ARGS__)->SetLevel(JEventLevel::Timeslice))
+
   InitJANAPlugin(app);
 
   // Make sure left and right use the same value
@@ -95,9 +98,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
   decltype(CalorimeterHitDigiConfig::pedSigmaADC) EcalBarrelScFi_pedSigmaADC = 1;
   decltype(CalorimeterHitDigiConfig::resolutionTDC) EcalBarrelScFi_resolutionTDC =
       10 * dd4hep::picosecond;
-  app->Add(new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
-      "EcalBarrelScFiPAttenuatedHits_TK", {"EcalBarrelScFiHits"},
-      {"EcalBarrelScFiPAttenuatedHits_TK", "EcalBarrelScFiPAttenuatedHitContributions_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
+      "EcalBarrelScFiPAttenuatedHitDigi", {"EcalBarrelScFiHits"},
+      {"EcalBarrelScFiPAttenuatedHitDigi", "EcalBarrelScFiPAttenuatedHitContributionDigi"},
       {
           .attenuationParameters            = EcalBarrelScFi_attPars,
           .readout                          = "EcalBarrelScFiHits",
@@ -110,9 +113,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
-      "EcalBarrelScFiNAttenuatedHits_TK", {"EcalBarrelScFiHits"},
-      {"EcalBarrelScFiNAttenuatedHits_TK", "EcalBarrelScFiNAttenuatedHitContributions_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
+      "EcalBarrelScFiNAttenuatedHitDigi", {"EcalBarrelScFiHits"},
+      {"EcalBarrelScFiNAttenuatedHitDigi", "EcalBarrelScFiNAttenuatedHitContributionDigi"},
       {
           .attenuationParameters            = EcalBarrelScFi_attPars,
           .readout                          = "EcalBarrelScFiHits",
@@ -125,8 +128,8 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimCalorimeterHit>>(
-      "EcalBarrelScFiPPulses_TK", {"EcalBarrelScFiPAttenuatedHits_TK"}, {"EcalBarrelScFiPPulses_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimCalorimeterHit>>(
+      "EcalBarrelScFiPPulseDigi", {"EcalBarrelScFiPAttenuatedHitDigi"}, {"EcalBarrelScFiPPulseDigi"},
       {
           .pulse_shape_function = EcalBarrelScFi_pulse_shape_function,
           .pulse_shape_params   = EcalBarrelScFi_pulse_shape_params,
@@ -135,8 +138,8 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimCalorimeterHit>>(
-      "EcalBarrelScFiNPulses_TK", {"EcalBarrelScFiNAttenuatedHits_TK"}, {"EcalBarrelScFiNPulses_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimCalorimeterHit>>(
+      "EcalBarrelScFiNPulseDigi", {"EcalBarrelScFiNAttenuatedHitDigi"}, {"EcalBarrelScFiNPulseDigi"},
       {
           .pulse_shape_function = EcalBarrelScFi_pulse_shape_function,
           .pulse_shape_params   = EcalBarrelScFi_pulse_shape_params,
@@ -145,8 +148,8 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<PulseCombiner_factory>(
-      "EcalBarrelScFiPCombinedPulses_TK", {"EcalBarrelScFiPPulses_TK"}, {"EcalBarrelScFiPCombinedPulses_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<PulseCombiner_factory>(
+      "EcalBarrelScFiPCombinedPulseDigi", {"EcalBarrelScFiPPulseDigi"}, {"EcalBarrelScFiPCombinedPulseDigi"},
       {
           .minimum_separation = EcalBarrelScFi_minimum_separation,
           .readout            = "EcalBarrelScFiHits",
@@ -154,8 +157,8 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<PulseCombiner_factory>(
-      "EcalBarrelScFiNCombinedPulses_TK", {"EcalBarrelScFiNPulses_TK"}, {"EcalBarrelScFiNCombinedPulses_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<PulseCombiner_factory>(
+      "EcalBarrelScFiNCombinedPulseDigi", {"EcalBarrelScFiNPulseDigi"}, {"EcalBarrelScFiNCombinedPulseDigi"},
       {
           .minimum_separation = EcalBarrelScFi_minimum_separation,
           .readout            = "EcalBarrelScFiHits",
@@ -163,9 +166,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<PulseNoise_factory>(
-      "EcalBarrelScFiPCombinedPulsesWithNoise_TK", {"EventHeader", "EcalBarrelScFiPCombinedPulses_TK"},
-      {"EcalBarrelScFiPCombinedPulsesWithNoise_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<PulseNoise_factory>(
+      "EcalBarrelScFiPCombinedPulsesWithNoiseDigi", {"EventHeader", "EcalBarrelScFiPCombinedPulseDigi"},
+      {"EcalBarrelScFiPCombinedPulsesWithNoiseDigi"},
       {
           .poles    = EcalBarrelScFi_poles,
           .variance = EcalBarrelScFi_variance,
@@ -175,9 +178,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<PulseNoise_factory>(
-      "EcalBarrelScFiNCombinedPulsesWithNoise_TK", {"EventHeader", "EcalBarrelScFiNCombinedPulses_TK"},
-      {"EcalBarrelScFiNCombinedPulsesWithNoise_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<PulseNoise_factory>(
+      "EcalBarrelScFiNCombinedPulsesWithNoiseDigi", {"EventHeader", "EcalBarrelScFiNCombinedPulseDigi"},
+      {"EcalBarrelScFiNCombinedPulsesWithNoiseDigi"},
       {
           .poles    = EcalBarrelScFi_poles,
           .variance = EcalBarrelScFi_variance,
@@ -188,9 +191,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
       app // TODO: Remove me once fixed
       ));
 #if EDM4EIC_VERSION_MAJOR > 8 || (EDM4EIC_VERSION_MAJOR == 8 && EDM4EIC_VERSION_MINOR >= 7)
-  app->Add(new JOmniFactoryGeneratorT<CALOROCDigitization_factory>(
-      "EcalBarrelScFiPCALOROCHits_TK", {"EcalBarrelScFiPCombinedPulsesWithNoise_TK"},
-      {"EcalBarrelScFiPCALOROCHits_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<CALOROCDigitization_factory>(
+      "EcalBarrelScFiPCALOROCHitDigi", {"EcalBarrelScFiPCombinedPulsesWithNoiseDigi"},
+      {"EcalBarrelScFiPCALOROCHitDigi"},
       {
           .adc_phase            = EcalBarrelScFi_adc_phase,
           .toa_thres            = EcalBarrelScFi_toa_thres,
@@ -201,9 +204,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CALOROCDigitization_factory>(
-      "EcalBarrelScFiNCALOROCHits_TK", {"EcalBarrelScFiNCombinedPulsesWithNoise_TK"},
-      {"EcalBarrelScFiNCALOROCHits_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<CALOROCDigitization_factory>(
+      "EcalBarrelScFiNCALOROCHitDigi", {"EcalBarrelScFiNCombinedPulsesWithNoiseDigi"},
+      {"EcalBarrelScFiNCALOROCHitDigi"},
       {
           .adc_phase            = EcalBarrelScFi_adc_phase,
           .toa_thres            = EcalBarrelScFi_toa_thres,
@@ -215,13 +218,13 @@ void InitPlugin_digiBEMC(JApplication* app) {
       app // TODO: Remove me once fixed
       ));
 #endif
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "EcalBarrelScFiRawHits_TK", {"EventHeader", "EcalBarrelScFiHits_TK"},
-      {"EcalBarrelScFiRawHits_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "EcalBarrelScFiRawHitDigi", {"EventHeader", "EcalBarrelScFiHitDigi"},
+      {"EcalBarrelScFiRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelScFiRawHitLinks_TK",
+       "EcalBarrelScFiRawHitLinkDigi",
 #endif
-       "EcalBarrelScFiRawHitAssociations_TK"},
+       "EcalBarrelScFiRawHitAssociationDigi"},
       {
           .eRes          = {0.0 * sqrt(dd4hep::GeV), 0.0, 0.0 * dd4hep::GeV},
           .tRes          = 0.0 * dd4hep::ns,
@@ -237,8 +240,8 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "EcalBarrelScFiRecHits_TK", {"EcalBarrelScFiRawHits_TK"}, {"EcalBarrelScFiRecHits_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "EcalBarrelScFiRecHitDigi", {"EcalBarrelScFiRawHitDigi"}, {"EcalBarrelScFiRecHitDigi"},
       {
           .capADC          = EcalBarrelScFi_capADC,
           .dyRangeADC      = EcalBarrelScFi_dyRangeADC,
@@ -259,8 +262,8 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
-      "EcalBarrelScFiProtoClusters_TK", {"EcalBarrelScFiRecHits_TK"}, {"EcalBarrelScFiProtoClusters_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+      "EcalBarrelScFiProtoClusterDigi", {"EcalBarrelScFiRecHitDigi"}, {"EcalBarrelScFiProtoClusterDigi"},
       {
           .adjacencyMatrix{},
           .peakNeighbourhoodMatrix{},
@@ -281,31 +284,31 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "EcalBarrelScFiClustersWithoutShapes_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "EcalBarrelScFiClustersWithoutShapeDigi",
       {
-          "EcalBarrelScFiProtoClusters_TK", // edm4eic::ProtoClusterCollection
+          "EcalBarrelScFiProtoClusterDigi", // edm4eic::ProtoClusterCollection
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "EcalBarrelScFiRawHitLinks_TK", // edm4eic::MCRecoCalorimeterHitLink
+          "EcalBarrelScFiRawHitLinkDigi", // edm4eic::MCRecoCalorimeterHitLink
 #endif
-          "EcalBarrelScFiRawHitAssociations_TK" // edm4eic::MCRecoCalorimeterHitAssociation
+          "EcalBarrelScFiRawHitAssociationDigi" // edm4eic::MCRecoCalorimeterHitAssociation
       },
-      {"EcalBarrelScFiClustersWithoutShapes_TK", // edm4eic::Cluster
+      {"EcalBarrelScFiClustersWithoutShapeDigi", // edm4eic::Cluster
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelScFiClusterLinksWithoutShapes_TK",
+       "EcalBarrelScFiClusterLinksWithoutShapeDigi",
 #endif
-       "EcalBarrelScFiClusterAssociationsWithoutShapes_TK"}, // edm4eic::MCRecoClusterParticleAssociation
+       "EcalBarrelScFiClusterAssociationsWithoutShapeDigi"}, // edm4eic::MCRecoClusterParticleAssociation
       {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalBarrelScFiClusters_TK",
-      {"EcalBarrelScFiClustersWithoutShapes_TK", "EcalBarrelScFiClusterAssociationsWithoutShapes_TK"},
-      {"EcalBarrelScFiClusters_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "EcalBarrelScFiClusterDigi",
+      {"EcalBarrelScFiClustersWithoutShapeDigi", "EcalBarrelScFiClusterAssociationsWithoutShapeDigi"},
+      {"EcalBarrelScFiClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelScFiClusterLinks_TK",
+       "EcalBarrelScFiClusterLinkDigi",
 #endif
-       "EcalBarrelScFiClusterAssociations_TK"},
+       "EcalBarrelScFiClusterAssociationDigi"},
       {.longitudinalShowerInfoAvailable = true, .energyWeight = "log", .logWeightBase = 6.2}, app));
 
   // Make sure digi and reco use the same value
@@ -320,22 +323,22 @@ void InitPlugin_digiBEMC(JApplication* app) {
       5; // Upper limit for sigma for AstroPix
   decltype(CalorimeterHitDigiConfig::resolutionTDC) EcalBarrelImaging_resolutionTDC =
       3.25 * dd4hep::nanosecond;
-  app->Add(new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
-      "EcalBarrelImagingProcessedHits_TK", {"EcalBarrelImagingHits"},
-      {"EcalBarrelImagingProcessedHits_TK", "EcalBarrelImagingProcessedHitContributions_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
+      "EcalBarrelImagingProcessedHitDigi", {"EcalBarrelImagingHits"},
+      {"EcalBarrelImagingProcessedHitDigi", "EcalBarrelImagingProcessedHitContributionDigi"},
       {
           .readout    = "EcalBarrelImagingHits",
           .timeWindow = EcalBarrelImaging_timeWindow,
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "EcalBarrelImagingRawHits_TK", {"EventHeader", "EcalBarrelImagingProcessedHits_TK"},
-      {"EcalBarrelImagingRawHits_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "EcalBarrelImagingRawHitDigi", {"EventHeader", "EcalBarrelImagingProcessedHitDigi"},
+      {"EcalBarrelImagingRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelImagingRawHitLinks_TK",
+       "EcalBarrelImagingRawHitLinkDigi",
 #endif
-       "EcalBarrelImagingRawHitAssociations_TK"},
+       "EcalBarrelImagingRawHitAssociationDigi"},
       {
           .eRes          = {0.0 * sqrt(dd4hep::GeV), 0.02, 0.0 * dd4hep::GeV},
           .tRes          = 0.0 * dd4hep::ns,
@@ -349,8 +352,8 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "EcalBarrelImagingRecHits_TK", {"EcalBarrelImagingRawHits_TK"}, {"EcalBarrelImagingRecHits_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "EcalBarrelImagingRecHitDigi", {"EcalBarrelImagingRawHitDigi"}, {"EcalBarrelImagingRecHitDigi"},
       {
           .capADC          = EcalBarrelImaging_capADC,
           .dyRangeADC      = EcalBarrelImaging_dyRangeADC,
@@ -366,9 +369,9 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<ImagingTopoCluster_factory>(
-      "EcalBarrelImagingProtoClusters_TK", {"EcalBarrelImagingRecHits_TK"},
-      {"EcalBarrelImagingProtoClusters_TK"},
+  ADD_TS(app, new JOmniFactoryGeneratorT<ImagingTopoCluster_factory>(
+      "EcalBarrelImagingProtoClusterDigi", {"EcalBarrelImagingRecHitDigi"},
+      {"EcalBarrelImagingProtoClusterDigi"},
       {
           .neighbourLayersRange = 2, //  # id diff for adjacent layer
           .sameLayerDistTZ      = {2.0 * dd4hep::mm, 2 * dd4hep::mm},     //  # same layer
@@ -384,43 +387,43 @@ void InitPlugin_digiBEMC(JApplication* app) {
       app // TODO: Remove me once fixed
       ));
 
-  app->Add(new JOmniFactoryGeneratorT<ImagingClusterReco_factory>(
-      "EcalBarrelImagingClustersWithoutShapes_TK",
-      {"EcalBarrelImagingProtoClusters_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<ImagingClusterReco_factory>(
+      "EcalBarrelImagingClustersWithoutShapeDigi",
+      {"EcalBarrelImagingProtoClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelImagingRawHitLinks_TK",
+       "EcalBarrelImagingRawHitLinkDigi",
 #endif
-       "EcalBarrelImagingRawHitAssociations_TK"},
-      {"EcalBarrelImagingClustersWithoutShapes_TK",
+       "EcalBarrelImagingRawHitAssociationDigi"},
+      {"EcalBarrelImagingClustersWithoutShapeDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelImagingClusterLinksWithoutShapes_TK",
+       "EcalBarrelImagingClusterLinksWithoutShapeDigi",
 #endif
-       "EcalBarrelImagingClusterAssociationsWithoutShapes_TK", "EcalBarrelImagingLayers_TK"},
+       "EcalBarrelImagingClusterAssociationsWithoutShapeDigi", "EcalBarrelImagingLayerDigi"},
       {
           .trackStopLayer = 6,
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalBarrelImagingClusters_TK",
-      {"EcalBarrelImagingClustersWithoutShapes_TK",
-       "EcalBarrelImagingClusterAssociationsWithoutShapes_TK"},
-      {"EcalBarrelImagingClusters_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "EcalBarrelImagingClusterDigi",
+      {"EcalBarrelImagingClustersWithoutShapeDigi",
+       "EcalBarrelImagingClusterAssociationsWithoutShapeDigi"},
+      {"EcalBarrelImagingClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelImagingClusterLink_TK",
+       "EcalBarrelImagingClusterLinkDigi",
 #endif
-       "EcalBarrelImagingClusterAssociations_TK"},
+       "EcalBarrelImagingClusterAssociationDigi"},
       {.longitudinalShowerInfoAvailable = false, .energyWeight = "log", .logWeightBase = 6.2},
       app));
-  app->Add(new JOmniFactoryGeneratorT<EnergyPositionClusterMerger_factory>(
-      "EcalBarrelClusters_TK",
-      {"EcalBarrelScFiClusters_TK", "EcalBarrelScFiClusterAssociations_TK", "EcalBarrelImagingClusters_TK",
-       "EcalBarrelImagingClusterAssociations_TK"},
-      {"EcalBarrelClusters_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<EnergyPositionClusterMerger_factory>(
+      "EcalBarrelClusterDigi",
+      {"EcalBarrelScFiClusterDigi", "EcalBarrelScFiClusterAssociationDigi", "EcalBarrelImagingClusterDigi",
+       "EcalBarrelImagingClusterAssociationDigi"},
+      {"EcalBarrelClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelClusterLinks_TK",
+       "EcalBarrelClusterLinkDigi",
 #endif
-       "EcalBarrelClusterAssociations_TK"},
+       "EcalBarrelClusterAssociationDigi"},
       {
           .energyRelTolerance = 0.5,
           .phiTolerance       = 0.1,
@@ -428,15 +431,15 @@ void InitPlugin_digiBEMC(JApplication* app) {
       },
       app // TODO: Remove me once fixed
       ));
-  app->Add(new JOmniFactoryGeneratorT<TruthEnergyPositionClusterMerger_factory>(
-      "EcalBarrelTruthClusters_TK",
-      {"MCParticles", "EcalBarrelScFiClusters_TK", "EcalBarrelScFiClusterAssociations_TK",
-       "EcalBarrelImagingClusters_TK", "EcalBarrelImagingClusterAssociations_TK"},
-      {"EcalBarrelTruthClusters_TK",
+  ADD_TS(app, new JOmniFactoryGeneratorT<TruthEnergyPositionClusterMerger_factory>(
+      "EcalBarrelTruthClusterDigi",
+      {"MCParticles", "EcalBarrelScFiClusterDigi", "EcalBarrelScFiClusterAssociationDigi",
+       "EcalBarrelImagingClusterDigi", "EcalBarrelImagingClusterAssociationDigi"},
+      {"EcalBarrelTruthClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalBarrelTruthClusterLinks_TK",
+       "EcalBarrelTruthClusterLinkDigi",
 #endif
-       "EcalBarrelTruthClusterAssociations_TK"},
+       "EcalBarrelTruthClusterAssociationDigi"},
       app // TODO: Remove me once fixed
       ));
 }

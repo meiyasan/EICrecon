@@ -81,6 +81,16 @@ public:
                          .m_default_cfg         = config});
   }
 
+  /// Apply an event level to every wiring on this generator. Returns `this` so it
+  /// can be chained at registration, e.g.
+  ///   app->Add((new JOmniFactoryGeneratorT<F>(...))->SetLevel(JEventLevel::Timeslice));
+  JOmniFactoryGeneratorT* SetLevel(JEventLevel level) {
+    for (auto& wiring : m_wirings) {
+      wiring.level = level;
+    }
+    return this;
+  }
+
   void GenerateFactories(JFactorySet* factory_set) override {
 
     for (const auto& wiring : m_wirings) {

@@ -26,12 +26,12 @@ void InitPlugin_digiLUMISPECCAL(JApplication* app) {
   InitJANAPlugin(app);
 
   app->Add(new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "EcalLumiSpecRawHits_TK", {"EventHeader", "EcalLumiSpecHits"},
-      {"EcalLumiSpecRawHits_TK",
+      "EcalLumiSpecRawHitDigi", {"EventHeader", "EcalLumiSpecHits"},
+      {"EcalLumiSpecRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecRawHitLinks_TK",
+       "EcalLumiSpecRawHitLinkDigi",
 #endif
-       "EcalLumiSpecRawHitAssociations_TK"},
+       "EcalLumiSpecRawHitAssociationDigi"},
       {
           .eRes          = {0.0 * sqrt(dd4hep::GeV), 0.02, 0.0 * dd4hep::GeV}, // flat 2%
           .tRes          = 0.0 * dd4hep::ns,
@@ -46,7 +46,7 @@ void InitPlugin_digiLUMISPECCAL(JApplication* app) {
       app // TODO: Remove me once fixed
       ));
   app->Add(new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "EcalLumiSpecRecHits_TK", {"EcalLumiSpecRawHits_TK"}, {"EcalLumiSpecRecHits_TK"},
+      "EcalLumiSpecRecHitDigi", {"EcalLumiSpecRawHitDigi"}, {"EcalLumiSpecRecHitDigi"},
       {
           .capADC          = 16384,
           .dyRangeADC      = 20. * dd4hep::GeV,
@@ -61,13 +61,13 @@ void InitPlugin_digiLUMISPECCAL(JApplication* app) {
       app // TODO: Remove me once fixed
       ));
   app->Add(new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
-      "EcalLumiSpecTruthProtoClusters_TK", {"EcalLumiSpecRecHits_TK", "EcalLumiSpecHits"},
-      {"EcalLumiSpecTruthProtoClusters_TK"},
+      "EcalLumiSpecTruthProtoClusterDigi", {"EcalLumiSpecRecHitDigi", "EcalLumiSpecHits"},
+      {"EcalLumiSpecTruthProtoClusterDigi"},
       app // TODO: Remove me once fixed
       ));
   app->Add(new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
-      "EcalLumiSpecIslandProtoClusters_TK", {"EcalLumiSpecRecHits_TK"},
-      {"EcalLumiSpecIslandProtoClusters_TK"},
+      "EcalLumiSpecIslandProtoClusterDigi", {"EcalLumiSpecRecHitDigi"},
+      {"EcalLumiSpecIslandProtoClusterDigi"},
       {
           .adjacencyMatrix =
               "(sector_1 == sector_2) && ((abs(floor(module_1 / 10) - floor(module_2 / 10)) + "
@@ -92,58 +92,58 @@ void InitPlugin_digiLUMISPECCAL(JApplication* app) {
       ));
 
   app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "EcalLumiSpecClustersWithoutShapes_TK",
+      "EcalLumiSpecClustersWithoutShapeDigi",
       {
-          "EcalLumiSpecIslandProtoClusters_TK", // edm4eic::ProtoClusterCollection
+          "EcalLumiSpecIslandProtoClusterDigi", // edm4eic::ProtoClusterCollection
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "EcalLumiSpecRawHitLinks_TK", // edm4eic::MCRecoCalorimeterHitLink
+          "EcalLumiSpecRawHitLinkDigi", // edm4eic::MCRecoCalorimeterHitLink
 #endif
-          "EcalLumiSpecRawHitAssociations_TK" // edm4eic::MCRecoCalorimeterHitAssociationCollection
+          "EcalLumiSpecRawHitAssociationDigi" // edm4eic::MCRecoCalorimeterHitAssociationCollection
       },
-      {"EcalLumiSpecClustersWithoutShapes_TK",
+      {"EcalLumiSpecClustersWithoutShapeDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecClusterLinksWithoutShapes_TK",
+       "EcalLumiSpecClusterLinksWithoutShapeDigi",
 #endif
-       "EcalLumiSpecClusterAssociationsWithoutShapes_TK"}, // edm4eic::MCRecoClusterParticleAssociation
+       "EcalLumiSpecClusterAssociationsWithoutShapeDigi"}, // edm4eic::MCRecoClusterParticleAssociation
       {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 3.6, .enableEtaBounds = false},
       app // TODO: Remove me once fixed
       ));
   app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalLumiSpecClusters_TK",
-      {"EcalLumiSpecClustersWithoutShapes_TK", "EcalLumiSpecClusterAssociationsWithoutShapes_TK"},
-      {"EcalLumiSpecClusters_TK",
+      "EcalLumiSpecClusterDigi",
+      {"EcalLumiSpecClustersWithoutShapeDigi", "EcalLumiSpecClusterAssociationsWithoutShapeDigi"},
+      {"EcalLumiSpecClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecClusterLinks_TK",
+       "EcalLumiSpecClusterLinkDigi",
 #endif
-       "EcalLumiSpecClusterAssociations_TK"},
+       "EcalLumiSpecClusterAssociationDigi"},
       {.energyWeight = "log", .logWeightBase = 3.6}, app));
 
   app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "EcalLumiSpecTruthClustersWithoutShapes_TK",
+      "EcalLumiSpecTruthClustersWithoutShapeDigi",
       {
-          "EcalLumiSpecTruthProtoClusters_TK", // edm4eic::ProtoClusterCollection
+          "EcalLumiSpecTruthProtoClusterDigi", // edm4eic::ProtoClusterCollection
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "EcalLumiSpecRawHitLinks_TK", // edm4eic::MCRecoCalorimeterHitLink
+          "EcalLumiSpecRawHitLinkDigi", // edm4eic::MCRecoCalorimeterHitLink
 #endif
-          "EcalLumiSpecRawHitAssociations_TK" // edm4eic::MCRecoCalorimeterHitAssociationCollection
+          "EcalLumiSpecRawHitAssociationDigi" // edm4eic::MCRecoCalorimeterHitAssociationCollection
       },
-      {"EcalLumiSpecTruthClustersWithoutShapes_TK",
+      {"EcalLumiSpecTruthClustersWithoutShapeDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecTruthClusterLinksWithoutShapes_TK",
+       "EcalLumiSpecTruthClusterLinksWithoutShapeDigi",
 #endif
-       "EcalLumiSpecTruthClusterAssociationsWithoutShapes_TK"}, // edm4eic::MCRecoClusterParticleAssociation
+       "EcalLumiSpecTruthClusterAssociationsWithoutShapeDigi"}, // edm4eic::MCRecoClusterParticleAssociation
       {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 4.6, .enableEtaBounds = false},
       app // TODO: Remove me once fixed
       ));
   app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalLumiSpecTruthClusters_TK",
-      {"EcalLumiSpecTruthClustersWithoutShapes_TK",
-       "EcalLumiSpecTruthClusterAssociationsWithoutShapes_TK"},
-      {"EcalLumiSpecTruthClusters_TK",
+      "EcalLumiSpecTruthClusterDigi",
+      {"EcalLumiSpecTruthClustersWithoutShapeDigi",
+       "EcalLumiSpecTruthClusterAssociationsWithoutShapeDigi"},
+      {"EcalLumiSpecTruthClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecTruthClusterLinks_TK",
+       "EcalLumiSpecTruthClusterLinkDigi",
 #endif
-       "EcalLumiSpecTruthClusterAssociations_TK"},
+       "EcalLumiSpecTruthClusterAssociationDigi"},
       {.energyWeight = "log", .logWeightBase = 4.6}, app));
 }
 // }

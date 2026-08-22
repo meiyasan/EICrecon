@@ -50,12 +50,12 @@ void InitPlugin_digiPFRICH(JApplication* app) {
 
   // digitization
   app->Add(new JOmniFactoryGeneratorT<PhotoMultiplierHitDigi_factory>(
-      "RICHEndcapNRawHits_TK", {"EventHeader", "PFRICHHits"},
-      {"RICHEndcapNRawHits_TK",
+      "RICHEndcapNRawHitDigi", {"EventHeader", "PFRICHHits"},
+      {"RICHEndcapNRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "RICHEndcapNRawHitsLinks_TK",
+       "RICHEndcapNRawHitsLinkDigi",
 #endif
-       "RICHEndcapNRawHitsAssociations_TK"},
+       "RICHEndcapNRawHitsAssociationDigi"},
       digi_cfg, app));
 }
 // }

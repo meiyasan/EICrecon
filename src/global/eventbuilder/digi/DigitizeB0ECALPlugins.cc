@@ -25,13 +25,13 @@ void InitPlugin_digiB0ECAL(JApplication* app) {
 
   InitJANAPlugin(app);
 
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "B0ECalRawHits_TK", {"EventHeader", "B0ECalHits"},
-      {"B0ECalRawHits_TK",
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "B0ECalRawHitDigi", {"EventHeader", "B0ECalHits"},
+      {"B0ECalRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "B0ECalRawHitLinks_TK",
+       "B0ECalRawHitLinkDigi",
 #endif
-       "B0ECalRawHitAssociations_TK"},
+       "B0ECalRawHitAssociationDigi"},
       {
           // The stochastic term is set using light yield in PbOW4 of N_photons = 145.75 / GeV / mm, for 6x6 mm2 sensors with PDE=0.18 (a=1/sqrt(145.75*36*0.18))
           .eRes          = {0.0326 * sqrt(dd4hep::GeV), 0.00, 0.0 * dd4hep::GeV},
@@ -45,9 +45,9 @@ void InitPlugin_digiB0ECAL(JApplication* app) {
           .corrMeanScale = "1.0",
           .readout       = "B0ECalHits",
       },
-      app));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "B0ECalRecHits_TK", {"B0ECalRawHits_TK"}, {"B0ECalRecHits_TK"},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "B0ECalRecHitDigi", {"B0ECalRawHitDigi"}, {"B0ECalRecHitDigi"},
       {
           .capADC          = 16384,
           .dyRangeADC      = 170. * dd4hep::GeV,
@@ -60,12 +60,12 @@ void InitPlugin_digiB0ECAL(JApplication* app) {
           .readout         = "B0ECalHits",
           .sectorField     = "sector",
       },
-      app));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
-      "B0ECalTruthProtoClusters_TK", {"B0ECalRecHits_TK", "B0ECalHits"}, {"B0ECalTruthProtoClusters_TK"},
-      app));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
-      "B0ECalIslandProtoClusters_TK", {"B0ECalRecHits_TK"}, {"B0ECalIslandProtoClusters_TK"},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
+      "B0ECalTruthProtoClusterDigi", {"B0ECalRecHitDigi", "B0ECalHits"}, {"B0ECalTruthProtoClusterDigi"},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+      "B0ECalIslandProtoClusterDigi", {"B0ECalRecHitDigi"}, {"B0ECalIslandProtoClusterDigi"},
       {
           .adjacencyMatrix{},
           .peakNeighbourhoodMatrix{},
@@ -84,59 +84,59 @@ void InitPlugin_digiB0ECAL(JApplication* app) {
           .transverseEnergyProfileScale  = 1.,
           .transverseEnergyProfileScaleUnits{},
       },
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "B0ECalClustersWithoutShapes_TK",
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "B0ECalClustersWithoutShapeDigi",
       {
-          "B0ECalIslandProtoClusters_TK", // edm4eic::ProtoClusterCollection
+          "B0ECalIslandProtoClusterDigi", // edm4eic::ProtoClusterCollection
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "B0ECalRawHitLinks_TK", // edm4eic::MCRecoCalorimeterHitLink
+          "B0ECalRawHitLinkDigi", // edm4eic::MCRecoCalorimeterHitLink
 #endif
-          "B0ECalRawHitAssociations_TK" // edm4eic::MCRecoCalorimeterHitAssociationCollection
+          "B0ECalRawHitAssociationDigi" // edm4eic::MCRecoCalorimeterHitAssociationCollection
       },
-      {"B0ECalClustersWithoutShapes_TK", // edm4eic::Cluster
+      {"B0ECalClustersWithoutShapeDigi", // edm4eic::Cluster
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "B0ECalClusterLinksWithoutShapes_TK",
+       "B0ECalClusterLinksWithoutShapeDigi",
 #endif
-       "B0ECalClusterAssociationsWithoutShapes_TK"}, // edm4eic::MCRecoClusterParticleAssociation
+       "B0ECalClusterAssociationsWithoutShapeDigi"}, // edm4eic::MCRecoClusterParticleAssociation
       {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 3.6, .enableEtaBounds = false},
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "B0ECalClusters_TK", {"B0ECalClustersWithoutShapes_TK", "B0ECalClusterAssociationsWithoutShapes_TK"},
-      {"B0ECalClusters_TK",
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "B0ECalClusterDigi", {"B0ECalClustersWithoutShapeDigi", "B0ECalClusterAssociationsWithoutShapeDigi"},
+      {"B0ECalClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "B0ECalClusterLinks_TK",
+       "B0ECalClusterLinkDigi",
 #endif
-       "B0ECalClusterAssociations_TK"},
-      {.energyWeight = "log", .logWeightBase = 3.6}, app));
+       "B0ECalClusterAssociationDigi"},
+      {.energyWeight = "log", .logWeightBase = 3.6}, app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "B0ECalTruthClustersWithoutShapes_TK",
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "B0ECalTruthClustersWithoutShapeDigi",
       {
-          "B0ECalTruthProtoClusters_TK", // edm4eic::ProtoClusterCollection
+          "B0ECalTruthProtoClusterDigi", // edm4eic::ProtoClusterCollection
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "B0ECalRawHitLinks_TK", // edm4eic::MCRecoCalorimeterHitLink
+          "B0ECalRawHitLinkDigi", // edm4eic::MCRecoCalorimeterHitLink
 #endif
-          "B0ECalRawHitAssociations_TK" // edm4eic::MCRecoCalorimeterHitAssociationCollection
+          "B0ECalRawHitAssociationDigi" // edm4eic::MCRecoCalorimeterHitAssociationCollection
       },
-      {"B0ECalTruthClustersWithoutShapes_TK", // edm4eic::Cluster
+      {"B0ECalTruthClustersWithoutShapeDigi", // edm4eic::Cluster
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "B0ECalTruthClusterLinksWithoutShapes_TK",
+       "B0ECalTruthClusterLinksWithoutShapeDigi",
 #endif
-       "B0ECalTruthClusterAssociationsWithoutShapes_TK"}, // edm4eic::MCRecoClusterParticleAssociation
+       "B0ECalTruthClusterAssociationsWithoutShapeDigi"}, // edm4eic::MCRecoClusterParticleAssociation
       {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
-      app));
+      app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "B0ECalTruthClusters_TK",
-      {"B0ECalTruthClustersWithoutShapes_TK", "B0ECalTruthClusterAssociationsWithoutShapes_TK"},
-      {"B0ECalTruthClusters_TK",
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "B0ECalTruthClusterDigi",
+      {"B0ECalTruthClustersWithoutShapeDigi", "B0ECalTruthClusterAssociationsWithoutShapeDigi"},
+      {"B0ECalTruthClusterDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "B0ECalTruthClusterLinks_TK",
+       "B0ECalTruthClusterLinkDigi",
 #endif
-       "B0ECalTruthClusterAssociations_TK"},
-      {.energyWeight = "log", .logWeightBase = 6.2}, app));
+       "B0ECalTruthClusterAssociationDigi"},
+      {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
 }
 // }
