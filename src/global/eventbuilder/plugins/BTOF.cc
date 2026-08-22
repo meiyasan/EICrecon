@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+//
 // Copyright 2022, Dmitry Romanov
 // Subject to the terms in the LICENSE file found in the top-level directory.
 //
@@ -32,7 +36,7 @@
 #include "factories/tracking/TrackerHitReconstruction_factory.h"
 
 // extern "C" {
-void InitPlugin_digiBTOF(JApplication* app) {
+void InitPlugin_BTOF(JApplication* app) {
   InitJANAPlugin(app);
 
   using namespace eicrecon;
@@ -55,8 +59,12 @@ void InitPlugin_digiBTOF(JApplication* app) {
   app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
       "TOFBarrelRecHitDigi", {"TOFBarrelRawHitDigi"}, // Input data collection tags
       {"TOFBarrelRecHitDigi"},                        // Output data tag
-      {},
-      app))->SetLevel(JEventLevel::Timeslice)); // Hit reco default config for factories
+      {
+          .timeResolution = 0.025, // [ns] -- match the raw-digi stage above (was
+                                    // left at TrackerHitReconstructionConfig's
+                                    // generic 10 ns default; ECTOF sets this)
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
 
   // Convert raw digitized hits into calibrated hits
   // time walk correction is still TBD

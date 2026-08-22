@@ -121,6 +121,14 @@ JEventProcessorPODIO::JEventProcessorPODIO() {
       "TOFEndcapADCTDC",
 
       "TOFBarrelRawHitLinks",
+
+      // Eventbuilder final TOF names (EventUnfolder emits *RecHits/*RawHits for
+      // TOF just like every other detector; only these two pairs were missed
+      // when the whitelist was written against the pre-eventbuilder names above)
+      "TOFBarrelRecHits",
+      "TOFEndcapRecHits",
+      "TOFBarrelRawHits",
+      "TOFEndcapRawHits",
       "TOFBarrelRawHitAssociations",
       "TOFEndcapRawHitLinks",
       "TOFEndcapRawHitAssociations",
@@ -475,6 +483,53 @@ JEventProcessorPODIO::JEventProcessorPODIO() {
       "DIRCTruthSeededParticleIDs",
       "DIRCParticleIDs",
 
+      // "triggerflag",
+      "EventHeader_TS", // This is a timeslice header, not a PODIO collection
+
+      // Eventbuilder TimeAlign/TimeCoinc debug pass-through (see EventUnfolder
+      // in global/eventbuilder/eventbuilder.cc): full, ungated copies of the
+      // Timeslice-level intermediates, re-exported at PhysicsEvent level.
+      "TOFBarrelTimeAlignRecHits",
+      "TOFEndcapTimeAlignRecHits",
+      "MPGDBarrelTimeAlignRecHits",
+      "OuterMPGDBarrelTimeAlignRecHits",
+      "BackwardMPGDEndcapTimeAlignRecHits",
+      "ForwardMPGDEndcapTimeAlignRecHits",
+      "SiBarrelVertexTimeCoincRecHits",
+      "SiBarrelTrackerTimeCoincRecHits",
+      "SiEndcapTrackerTimeCoincRecHits",
+      "B0TrackerTimeCoincRecHits",
+      "B0ECalTimeAlignClusters",
+      "EcalBarrelTimeAlignClusters",
+      "EcalEndcapNTimeAlignClusters",
+      "EcalEndcapPTimeAlignClusters",
+
+      // Ungated slow-detector *TimeAlignRecHits (pre-coincidence-gate), for
+      // comparing against the gated *TimeCoincRecHits above.
+      "SiBarrelVertexTimeAlignRecHits",
+      "SiBarrelTrackerTimeAlignRecHits",
+      "SiEndcapTrackerTimeAlignRecHits",
+      "B0TrackerTimeAlignRecHits",
+
+      // Candidate lists (pre-/post-prefilter), debug pass-through.
+      "EventCandidates",
+      "EventCandidatesFiltered",
+
+      // Calo *RawHitAssociations, carried through by EventUnfolder. The
+      // matching tracker/calo *RawHitLinks are already in the main list
+      // above (upstream added them), so they are not repeated here.
+      "B0ECalRawHitAssociations",
+      "EcalBarrelScFiRawHitAssociations",
+      "HcalBarrelRawHitAssociations",
+      "EcalEndcapNRawHitAssociations",
+      "HcalEndcapNRawHitAssociations",
+      "EcalEndcapPRawHitAssociations",
+      "EcalEndcapPInsertRawHitAssociations",
+      "HcalEndcapPInsertRawHitAssociations",
+      "LFHCALRawHitAssociations",
+      "EcalLumiSpecRawHitAssociations",
+      "EcalFarForwardZDCRawHitAssociations",
+      "HcalFarForwardZDCRawHitAssociations",
       "EcalEndcapPTrackClusterMatches",
       "LFHCALTrackClusterMatches",
       "HcalEndcapPInsertClusterMatches",

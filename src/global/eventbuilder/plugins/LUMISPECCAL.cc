@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+
 // Copyright (C) 2022 - 2025 Sylvester Joosten, Chao, Chao Peng, Whitney Armstrong, David Lawrence, Dhevan Gangadharan, Nathan Brei,, Wouter Deconinck, Dmitry Kalinkin, Derek Anderson
 
 #include <Evaluator/DD4hepUnits.h>
@@ -19,7 +22,7 @@
 #include "factories/calorimetry/CalorimeterTruthClustering_factory.h"
 
 // extern "C" {
-void InitPlugin_digiLUMISPECCAL(JApplication* app) {
+void InitPlugin_LUMISPECCAL(JApplication* app) {
 
   using namespace eicrecon;
 

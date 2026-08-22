@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+
 // Copyright (C) 2022 - 2025 Whitney Armstrong, Sylvester Joosten, Chao Peng, David Lawrence, Wouter Deconinck, Kolja Kauder, Nathan Brei, Dmitry Kalinkin, Derek Anderson, Michael Pitt
 
 #include <edm4eic/EDM4eicVersion.h>
@@ -19,7 +22,7 @@
 #include "factories/calorimetry/CalorimeterTruthClustering_factory.h"
 
 // extern "C" {
-void InitPlugin_digiB0ECAL(JApplication* app) {
+void InitPlugin_B0ECAL(JApplication* app) {
 
   using namespace eicrecon;
 

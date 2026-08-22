@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+
 // Copyright (C) 2022 - 2025 Sylvester Joosten, Chao, Chao Peng, Whitney Armstrong, David Lawrence, Friederike Bock, Nathan Brei, Wouter Deconinck, Dmitry Kalinkin, Derek Anderson
 
 #include <Evaluator/DD4hepUnits.h>
@@ -18,10 +21,9 @@
 #include "factories/calorimetry/CalorimeterHitsMerger_factory.h"
 #include "factories/calorimetry/CalorimeterIslandCluster_factory.h"
 #include "factories/calorimetry/CalorimeterTruthClustering_factory.h"
-#include "factories/calorimetry/TrackClusterMergeSplitter_factory.h"
 
 // extern "C" {
-void InitPlugin_digiFEMC(JApplication* app) {
+void InitPlugin_EHCAL(JApplication* app) {
 
   using namespace eicrecon;
 
@@ -164,45 +166,8 @@ void InitPlugin_digiFEMC(JApplication* app) {
 #endif
        "HcalEndcapNClusterAssociationDigi"},
       {.energyWeight = "log", .logWeightBase = 6.2}, app));
-  app->Add(new JOmniFactoryGeneratorT<TrackClusterMergeSplitter_factory>(
-      "HcalEndcapNSplitMergeProtoClusterDigi",
-      {"HcalEndcapNIslandProtoClusterDigi", "CalorimeterTrackProjections"},
-      {"HcalEndcapNSplitMergeProtoClusterDigi"},
-      {.idCalo                       = "HcalEndcapN_ID",
-       .minSigCut                    = -2.0,
-       .avgEP                        = 0.60,
-       .sigEP                        = 0.40,
-       .drAdd                        = 0.40,
-       .sampFrac                     = 1.0,
-       .transverseEnergyProfileScale = 1.0},
-      app // TODO: remove me once fixed
-      ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "HcalEndcapNSplitMergeClustersWithoutShapeDigi",
-      {
-          "HcalEndcapNSplitMergeProtoClusterDigi", // edm4eic::ProtoClusterCollection
-#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "HcalEndcapNRawHitLinkDigi", // edm4eic::MCRecoCalorimeterHitLink
-#endif
-          "HcalEndcapNRawHitAssociationDigi" // edm4hep::MCRecoCalorimeterHitAssociationCollection
-      },
-      {"HcalEndcapNSplitMergeClustersWithoutShapeDigi",
-#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalEndcapNSplitMergeClusterLinksWithoutShapeDigi",
-#endif
-       "HcalEndcapNSplitMergeClusterAssociationsWithoutShapeDigi"}, // edm4eic::MCRecoClusterParticleAssociation
-      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
-      app // TODO: Remove me once fixed
-      ));
-  app->Add(new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "HcalEndcapNSplitMergeClusterDigi",
-      {"HcalEndcapNSplitMergeClustersWithoutShapeDigi",
-       "HcalEndcapNSplitMergeClusterAssociationsWithoutShapeDigi"},
-      {"HcalEndcapNSplitMergeClusterDigi",
-#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalEndcapNSplitMergeClusterLinkDigi",
-#endif
-       "HcalEndcapNSplitMergeClusterAssociationDigi"},
-      {.energyWeight = "log", .logWeightBase = 6.2}, app));
+  // TrackClusterMergeSplitter (and its SplitMerge cluster chain) is not
+  // registered at Timeslice level: it requires ACTS CalorimeterTrackProjections
+  // (plus track-cluster matches), which only exist at PhysicsEvent level.
 }
 // }

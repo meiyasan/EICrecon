@@ -133,6 +133,10 @@ public:
           if constexpr (!IsOptional) {
             throw JException("JOmniFactory: Failed to get collection %s: %s", coll_name.c_str(),
                              e.what());
+          } else {
+            // Preserve positional alignment: input index i must keep matching
+            // output index i even when an optional collection is absent.
+            m_data.push_back(nullptr);
           }
         }
       }

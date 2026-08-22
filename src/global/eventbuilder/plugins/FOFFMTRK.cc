@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+//
 // Copyright 2023, Alex Jentsch
 // Subject to the terms in the LICENSE file found in the top-level directory.
 //
@@ -14,7 +18,7 @@
 #include "factories/tracking/TrackerHitReconstruction_factory.h"
 
 // extern "C" {
-void InitPlugin_digiFOFFMTRK(JApplication* app) {
+void InitPlugin_FOFFMTRK(JApplication* app) {
   InitJANAPlugin(app);
   using namespace eicrecon;
   //Digitized hits, especially for thresholds

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+//
 // Copyright 2022, Dmitry Romanov
 // Subject to the terms in the LICENSE file found in the top-level directory.
 //
@@ -13,7 +17,7 @@
 #include "factories/tracking/TrackerHitReconstruction_factory.h"
 
 // extern "C" {
-void InitPlugin_digiBVTX(JApplication* app) {
+void InitPlugin_ECTRK(JApplication* app) {
   InitJANAPlugin(app);
 
   using namespace eicrecon;
@@ -21,17 +25,16 @@ void InitPlugin_digiBVTX(JApplication* app) {
   // Digitization
   app->Add(new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
       JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>::TypedWiring{
-          .m_tag                 = "SiBarrelVertexRawHitDigi",
-          .m_default_input_tags  = {"EventHeader", "VertexBarrelHits"},
-          .m_default_output_tags = {"SiBarrelVertexRawHitDigi",
+          .m_tag                 = "SiEndcapTrackerRawHitDigi",
+          .m_default_input_tags  = {"EventHeader", "TrackerEndcapHits"},
+          .m_default_output_tags = {"SiEndcapTrackerRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-                                    "SiBarrelVertexRawHitLinkDigi",
+                                    "SiEndcapTrackerRawHitLinkDigi",
 #endif
-                                    "SiBarrelVertexRawHitAssociationDigi"},
+                                    "SiEndcapTrackerRawHitAssociationDigi"},
           .m_default_cfg =
               {
-                  .threshold      = 0.54 * dd4hep::keV,
-                  .timeResolution = 10,
+                  .threshold = 0.54 * dd4hep::keV,
               },
           .level = JEventLevel::Timeslice},
       app));
@@ -39,9 +42,9 @@ void InitPlugin_digiBVTX(JApplication* app) {
   // Convert raw digitized hits into hits with geometry info (ready for tracking)
   app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
       JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>::TypedWiring{
-          .m_tag                 = "SiBarrelVertexRecHitDigi",
-          .m_default_input_tags  = {"SiBarrelVertexRawHitDigi"},
-          .m_default_output_tags = {"SiBarrelVertexRecHitDigi"},
+          .m_tag                 = "SiEndcapTrackerRecHitDigi",
+          .m_default_input_tags  = {"SiEndcapTrackerRawHitDigi"},
+          .m_default_output_tags = {"SiEndcapTrackerRecHitDigi"},
           .m_default_cfg =
               {
                   .timeResolution = 10,

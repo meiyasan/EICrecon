@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+//
 // Copyright (C) 2022, 2023, Christopher Dilks, Luigi Dello Stritto
 // Subject to the terms in the LICENSE file found in the top-level directory.
 
@@ -19,7 +23,7 @@
 #include "factories/digi/PhotoMultiplierHitDigi_factory.h"
 
 // extern "C" {
-void InitPlugin_digiPFRICH(JApplication* app) {
+void InitPlugin_PFRICH(JApplication* app) {
   InitJANAPlugin(app);
 
   using namespace eicrecon;

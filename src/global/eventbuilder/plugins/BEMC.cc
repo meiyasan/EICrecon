@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+
 // Copyright (C) 2022 - 2025 Whitney Armstrong, Sylvester Joosten, Chao Peng, David Lawrence, Thomas Britton, Wouter Deconinck, Maria Zurek, Akshaya Vijay, Nathan Brei, Dmitry Kalinkin, Derek Anderson, Minho Kim
 
 #include <Evaluator/DD4hepUnits.h>
@@ -42,7 +45,7 @@
 #endif
 
 // extern "C" {
-void InitPlugin_digiBEMC(JApplication* app) {
+void InitPlugin_BEMC(JApplication* app) {
 
   using namespace eicrecon;
 
@@ -219,7 +222,7 @@ void InitPlugin_digiBEMC(JApplication* app) {
       ));
 #endif
   ADD_TS(app, new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "EcalBarrelScFiRawHitDigi", {"EventHeader", "EcalBarrelScFiHitDigi"},
+      "EcalBarrelScFiRawHitDigi", {"EventHeader", "EcalBarrelScFiHits"},
       {"EcalBarrelScFiRawHitDigi",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
        "EcalBarrelScFiRawHitLinkDigi",

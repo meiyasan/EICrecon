@@ -6,6 +6,10 @@ plugins/*
 build/*
 install/*
 share/*
+!share/models/
+!share/models/**
+!share/samples/
+!share/samples/**
 
 # Artifacts
 calibrations/*

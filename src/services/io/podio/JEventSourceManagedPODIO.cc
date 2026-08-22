@@ -12,10 +12,11 @@
 #include "services/log/Log_service.h"
 
 JEventSourceManagedPODIO::JEventSourceManagedPODIO(std::string resource_name, JApplication* app)
-    : JEventSourcePODIO(resource_name, app) {
+    : JEventSourcePODIO() {
   SetTypeName(NAME_OF_THIS);
+  SetResourceName(resource_name);
 
-  m_log = GetApplication()->GetService<Log_service>()->logger("JEventSourceManagedPODIO");
+  m_log = app->GetService<Log_service>()->logger("JEventSourceManagedPODIO");
 }
 
 JEventSourceManagedPODIO::~JEventSourceManagedPODIO() {}

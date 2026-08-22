@@ -39,6 +39,7 @@ public:
   std::string m_output_backend       = "root";
   std::set<std::string> m_output_collections;         // config. parameter
   std::set<std::string> m_output_exclude_collections; // config. parameter
+  bool m_output_include_collections_set = false;      // deprecated parameter was provided
   std::vector<std::string> m_collections_to_write;    // derived from above config. parameters
   std::vector<std::string> m_collections_to_print;
 };

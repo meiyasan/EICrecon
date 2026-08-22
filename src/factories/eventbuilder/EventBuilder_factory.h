@@ -1,4 +1,6 @@
-// Copyright 2024, Jefferson Science Associates, LLC.
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2024 - 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
 // Subject to the terms in the LICENSE file found in the top-level directory.
 //
 // EventBuilder_factory
@@ -6,11 +8,17 @@
 // Streaming "event building" stage. Runs once per time-frame (JANA Timeslice
 // level) over the time-aligned tracker hits and *locates* candidate physics
 // events. For each candidate it produces a precise event time t0 and its
-// half-width dt0:
+// half-width t0sigma.
 //
-//   t0  = inverse-variance weighted mean of the coincident trigger-detector
-//         hit times,  t0 = Sum(t_i / sigma_i^2) / Sum(1 / sigma_i^2)
-//   dt0 = nsigma * sigma_t0,  sigma_t0 = 1 / sqrt(Sum 1/sigma_i^2)
+// t0  = inverse-variance weighted mean of the coincident trigger-detector
+//       hit times,  t0 = Sum(t_i / sigma_i^2) / Sum(1 / sigma_i^2)
+// t0sigma = nsigma * sigma_t0,  sigma_t0 = 1 / sqrt(Sum 1/sigma_i^2)
+//
+// Per-hit sigma_i is edm4eic::TrackerHit::getTimeError(), which each detector's
+// own TrackerHitReconstruction_factory (or equivalent) already populates from
+// its digitization config's timeResolution. This factory does NOT keep its own
+// copy of that number: reading it off the hit means it can never drift out of
+// sync with what the detector plugin actually configured.
 //
 // TOF (~30 ps) dominates the weighting, so t0 is effectively set by the fastest
 // detector. Silicon (~2 us) is carried by the detector but is NOT used to find
@@ -23,13 +31,15 @@
 // Output: an edm4hep::EventHeaderCollection "EventCandidates", one entry per
 // candidate, ordered in time. Encoding (lossless):
 //   timeStamp  = llround(t0_ns * 1000)   (t0 in ps, integer)
-//   weight     = dt0_ns
-//   weights[0] = t0_ns   weights[1] = dt0_ns   weights[2] = phys/fake flag
+//   weight     = t0sigma_ns
+//   weights[0] = t0_ns   weights[1] = t0sigma_ns   weights[2] = phys/fake flag
 //                (1 = matched MC collision, 2 = fake)
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
+#include <string>
 #include <vector>
 
 #include "TMath.h"
@@ -42,22 +52,11 @@
 
 struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
 
-  // -- time resolutions (ns), per detector group --------------------------------
-  // (slots declared before the ParameterRefs that bind to them)
-  float m_res_tof      = 0.03f;   // ns (AC-LGAD ~30 ps)
-  float m_res_mpgd     = 10.0f;   // ns
-  float m_res_si       = 2000.0f; // ns (MAPS integration window)
   float m_nsigma       = 3.0f;
   float m_coinc_window = 50.0f;   // ns
 
-  ParameterRef<float> timeResolution_TOF{this, "timeResolution_TOF", m_res_tof,
-                                         "time resolution of TOF detectors in ns"};
-  ParameterRef<float> timeResolution_MPGD{this, "timeResolution_MPGD", m_res_mpgd,
-                                          "time resolution of MPGD detectors in ns"};
-  ParameterRef<float> timeResolution_Silicon{this, "timeResolution_Silicon", m_res_si,
-                                             "time resolution of Silicon detectors in ns"};
   ParameterRef<float> nsigma_window{this, "nsigma_window", m_nsigma,
-                                    "N-sigma half-width that defines dt0 around t0"};
+                                    "N-sigma half-width that defines t0sigma around t0"};
   ParameterRef<float> coincidence_window{
       this, "coincidence_window", m_coinc_window,
       "time window (ns) over the fast detectors used to group coincident hits"};
@@ -79,6 +78,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
   PodioOutput<edm4hep::EventHeader> m_candidates_out{this, "EventCandidates"};
 
   void Configure() {}
+
   void ChangeRun(int32_t /*run_nr*/) {}
 
   // One time-aligned trigger hit, flattened across detectors.
@@ -89,16 +89,16 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
   };
 
   void Process(int64_t run_number, uint64_t /*event_number*/) {
-    // m_candidates_out() is reset to a fresh empty collection by the framework.
-
     // -- 1. Flatten the fast (TOF+MPGD) hits, with their (theta,phi) bins ------
     std::vector<FastHit> hits;
     for (size_t det = 0; det < kNumTriggerDet && det < m_trk_in().size(); ++det) {
       const auto* coll = m_trk_in().at(det);
       if (coll == nullptr)
         continue;
-      const float sigma = detTimeRes(det);
       for (const auto& hit : *coll) {
+        const float sigma = hit.getTimeError();
+        if (!(sigma > 0.0f))
+          continue; // unusable (unset/zero) resolution -- would blow up the 1/sigma^2 weight
         FastHit fh{hit.getTime(), sigma, 999, 999, 999, 999};
         thetaPhiBinCalc(hit, fh.th1, fh.ph1, fh.th2, fh.ph2);
         hits.push_back(fh);
@@ -134,18 +134,17 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
             trigger = true;
 
       if (trigger) {
-        // inverse-variance t0 over the coincident window [lo, hi)
         double sumw = 0.0, sumwt = 0.0;
         for (size_t k = lo; k < hi; ++k) {
           const double w = 1.0 / (double(hits[k].sigma) * double(hits[k].sigma));
-          sumw += w;
+          sumw  += w;
           sumwt += w * hits[k].time;
         }
         const double t0      = sumwt / sumw;
         const double sigmat0 = std::sqrt(1.0 / sumw);
-        const double dt0     = double(nsigma_window()) * sigmat0;
+        const double t0sigma     = double(nsigma_window()) * sigmat0;
 
-        emitCandidate(run_number, t0, dt0, matchPhysics(mc_times, t0));
+        emitCandidate(run_number, t0, t0sigma, matchPhysics(mc_times, t0));
 
         // consume the cluster: clear counts and jump past it
         for (size_t k = lo; k < hi; ++k) {
@@ -165,15 +164,6 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
   }
 
   // ---------------------------------------------------------------------------
-  // (not const: ParameterRef::operator() is non-const)
-  float detTimeRes(size_t detIdx) {
-    if (detIdx < 2)
-      return timeResolution_TOF();
-    if (detIdx < 6)
-      return timeResolution_MPGD();
-    return timeResolution_Silicon();
-  }
-
   // Returns 1 if an MC collision (status 61) sits within the window of this t0
   // and consumes it; 2 (fake) otherwise.
   int matchPhysics(std::vector<double>& mc_times, double t0) {
@@ -187,14 +177,14 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
     return 2;
   }
 
-  void emitCandidate(int64_t run_number, double t0, double dt0, int phys_flag) {
+  void emitCandidate(int64_t run_number, double t0, double t0sigma, int phys_flag) {
     auto cand = m_candidates_out()->create();
     cand.setRunNumber(static_cast<uint32_t>(run_number));
     cand.setEventNumber(m_candidates_out()->size() - 1);
     cand.setTimeStamp(static_cast<uint64_t>(std::llround(t0 * 1000.0))); // t0 in ps
-    cand.setWeight(dt0);                                                 // ns
+    cand.setWeight(t0sigma);                                                 // ns
     cand.addToWeights(t0);                                               // weights[0]
-    cand.addToWeights(dt0);                                              // weights[1]
+    cand.addToWeights(t0sigma);                                              // weights[1]
     cand.addToWeights(static_cast<double>(phys_flag));                   // weights[2]
   }
 

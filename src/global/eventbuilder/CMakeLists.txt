@@ -19,7 +19,7 @@ else()
 
   # plugin_glob_all only globs this directory; pull in the per-detector
   # digitization registration files that live in the digi/ subdirectory.
-  file(GLOB DIGITS_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/digi/*.cc)
+  file(GLOB DIGITS_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/plugins/*.cc)
   target_sources(${PLUGIN_NAME}_plugin PRIVATE ${DIGITS_SRC})
   if(TARGET ${PLUGIN_NAME}_library)
     target_sources(${PLUGIN_NAME}_library PRIVATE ${DIGITS_SRC})
@@ -36,7 +36,8 @@ else()
   # Add libraries (same as target_include_directories but for both plugin and
   # library)
   plugin_link_libraries(${PLUGIN_NAME} algorithms_digi_library
-                        algorithms_tracking_library)
+                        algorithms_tracking_library
+                        onnx_service_library)
   #
   # Add include directories (works same as target_include_directories)
   # plugin_include_directories(${PLUGIN_NAME} PUBLIC ${CMAKE_CURRENT_LIST_DIR}
@@ -49,3 +50,40 @@ else()
   # Boost::boost ${ROOT_EG_LIBRARY})
 
 endif()
+
+# ── test-events ────────────────────────────────────────────────────────────────
+# Run eicrecon+eventbuilder on 1 edm4hep event per SRO class.
+# Writes <class>.eicrecon.root to vendor/eicrecon/share/samples/gold-new/.
+#
+# Usage inside the container:
+#   make test-events
+#
+# The target searches vendor/sro/datasets/edm4hep/{vanilla,gold-new,gold-old}/<class>/
+# for input files and skips any class for which no edm4hep input is present.
+# Run `make dataset DATASET=vanilla` in vendor/sro first to populate inputs.
+#
+# Override the eicrecon executable:
+#   cmake --build . --target test-events -- EICRECON_BIN=/path/to/eicrecon
+
+set(_EB_SAMPLES_DIR "${CMAKE_SOURCE_DIR}/vendor/eicrecon/share/samples/gold-new")
+set(_EB_EDM4HEP_ROOT "${CMAKE_SOURCE_DIR}/vendor/sro/datasets/edm4hep")
+set(_EB_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/scripts/test_events.sh")
+
+if(NOT DEFINED EICRECON_BIN OR EICRECON_BIN STREQUAL "")
+  find_program(_EB_EICRECON_BIN eicrecon)
+  if(_EB_EICRECON_BIN)
+    set(EICRECON_BIN "${_EB_EICRECON_BIN}")
+  else()
+    set(EICRECON_BIN "eicrecon")  # fall back to PATH at run time
+  endif()
+endif()
+
+add_custom_target(test-events
+  COMMAND bash "${_EB_SCRIPT}"
+               "${_EB_SAMPLES_DIR}"
+               "${_EB_EDM4HEP_ROOT}"
+               "${EICRECON_BIN}"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Running eicrecon+eventbuilder on 1 event per SRO class → share/samples/gold-new/"
+  VERBATIM
+)

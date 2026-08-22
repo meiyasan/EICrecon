@@ -90,6 +90,11 @@ void JEventSourcePODIO::Init() {
   GetApplication()->SetDefaultParameter("podio:run_forever", m_run_forever,
                                         "set to true to recycle through events continuously");
 
+  GetApplication()->SetDefaultParameter(
+      "podio:use_event_headers", m_use_event_headers,
+      "Take event/run numbers from the EventHeader collection (default). Set false to number "
+      "events sequentially instead (e.g. recycled streams or files with degenerate headers).");
+
   GetApplication()->SetDefaultParameter("podio:print_type_table", m_print_type_table,
                                         "Print list of collection names and their types");
 

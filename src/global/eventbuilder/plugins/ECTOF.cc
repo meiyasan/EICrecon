@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+
 // Copyright (C) 2022 - 2025, Dmitry Romanov,  Wouter Deconinck, Kolja Kauder, Barak Schmookler, Honey Khindri, Dmitry Kalinkin
 
 #include <Evaluator/DD4hepUnits.h>
@@ -26,7 +29,7 @@
 #include "factories/tracking/TrackerHitReconstruction_factory.h"
 
 // extern "C" {
-void InitPlugin_digiECTOF(JApplication* app) {
+void InitPlugin_ECTOF(JApplication* app) {
   InitJANAPlugin(app);
 
   using namespace eicrecon;

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+//
 
 // Copyright 2022, Dmitry Romanov
 // Subject to the terms in the LICENSE file found in the top-level directory.
@@ -33,7 +37,7 @@
 // - Is produced by "SiliconTrackerDigi".
 
 // extern "C" {
-void InitPlugin_digiMPGD(JApplication* app) {
+void InitPlugin_MPGD(JApplication* app) {
   InitJANAPlugin(app);
 
   using namespace eicrecon;
