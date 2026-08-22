@@ -1,5 +1,10 @@
 # `eventbuilder` — software event building for the ePIC streaming readout
 
+> **Start here:** `src/factories/eventbuilder/AGENTS.md` is the compact,
+> authoritative structural guide (file map, status bands, pile-up semantics,
+> weights tables, invariants). This README holds the deep derivations and
+> measurements behind it.
+
 The ePIC detector has **no hardware trigger**. The readout electronics
 stream all data continuously. The stream is sliced into fixed **time
 frames** of 2 microseconds. These frames are also called **timeslices**.
@@ -200,7 +205,11 @@ step is a factory in this plugin:
    happens before any event is unfolded. This step is off by default.
    The output is `EventCandidatesFiltered`.
 
-5. **Gate the slow hits** (`TimeCoincidence_factory`, tag `coincidence`).
+5. **Gate the slow hits** (`TrkTimeCoincidence`, tag `coincidence` — the
+   same `TimeCoincidence_factory<edm4eic::TrackerHit>` type is wired a
+   second time, tag `trkcoincidence`, to gate the fast TOF/MPGD hits;
+   `CalTimeCoincidence` = `TimeCoincidence_factory<edm4eic::Cluster>` does
+   the same for calo clusters, tag `calcoincidence`).
    For each candidate, this step keeps only the slow-detector hits
    inside `t0 +/- 3 x sigma_hit`. This is about +/-30 ns for Si and
    +/-24 ns for B0. Each hit uses its own resolution, read from the hit.
@@ -293,14 +302,9 @@ edge of grid 1 sits squarely inside a cell of grid 2. This is the
 half-cell stagger follows automatically from these values. One cell
 should be comparable in size to a plausible cluster's angular spread.
 Finer cells cut accidentals harder. Finer cells also risk splitting
-broad clusters. The default value has not been tuned systematically.
-Now that it is a configurable knob, it can be tuned. While the
-developers made this value configurable, they found a real bug. The
-original hardcoded azimuth binning divided phi in [0, 2pi) by pi/8,
-instead of 2pi/8. This error clamped half the azimuth range into one
-cell. This inflated that cell's count and its fake rate. The fix alone
-cut fakes by about 31%, at an unchanged threshold and full signal
-efficiency.
+broad clusters. The default value has not been tuned systematically, but
+it can be tuned, since it is now a configurable knob rather than a
+hardcoded value.
 
 **Why equal solid angle, and why it affects ACCEPTANCE (not just the
 fake rate).** A cell spanning `[theta1,theta2] x [phi1,phi2]` subtends
@@ -390,16 +394,16 @@ does NOT assume `mu` or take it from simulation. The plugin estimates
 `mu` from the frame itself: `mu = (N · dt/dT) / ncells`. Here, N is the
 frame's fast-hit count, dt is the coincidence window, and dT is the
 frame's hit-time span. This dT value is the same self-describing value
-stored in `weights[7]`. A frame is about 99.9% background. So this is a
+stored per candidate in `weights[18]`. A frame is about 99.9% background. So this is a
 consistent, self-calibrating estimate of the background rate. The
 signal in the frame inflates `mu` only at the `O(N_sig/N_bkg) ~ 0.1%`
 level.
 
 **What level S lives at, and how a quoted number is built.** S is a
 PER-CANDIDATE scalar, one value per built PhysicsEvent, stored in
-`weights[3]`. The plugin computes S once at trigger time, from hit
+`weights[4]`. The plugin computes S once at trigger time, from hit
 COUNTS: `S = (cmax − mu)/sqrt(mu)`. Here, `cmax` is the hit count in the
-busiest `(theta,phi)` cell, stored in `weights[18]`. S is NOT a per-hit
+busiest `(theta,phi)` cell, stored in `weights[7]`. S is NOT a per-hit
 quantity. Worked example: with `cmax=7` and `mu=0.18`,
 `S = (7−0.18)/sqrt(0.18) ≈ 16`. A range quoted per class, for example
 "7.3–18.3σ true", is a two-level summary. First, the plugin takes the
@@ -468,16 +472,15 @@ one (cell x window) trial. At the historical 12x8 = 96-cell grid, a
 frame performs roughly n_hits x 2 grids x 96 cells, about 1e5 trials.
 The current production default is a 1x1 = 1 cell grid instead
 (`theta_bins=phi_bins=1`). See `EB_TOPOLOGY_THETA_BINS` and
-`EB_TOPOLOGY_PHI_BINS` in the SRO Makefile. So `ncells` and the trial
+`EB_TOPOLOGY_PHI_BINS` in the production Makefile (external repo). So `ncells` and the trial
 count scale down accordingly, in production.
 Setting `p_fake = 1e-5` targets about one fake per frame, at the
 historical grid. This target stays true whether the frame is
 gold-coating, vacuum, or vanilla, because the plugin measures mu from
-the frame itself. The developers measured this on 10x100 gold-coating
-frames, across all six signal classes, after the label fix (see "Real
-or fake" above). At p_fake 1e-5, the rate is 12 fakes/frame, with only
-66-100% efficiency by class (DVCS is worst, at 66%). At p_fake 1e-8, the
-rate is 2.5 fakes/frame, with 29-94% efficiency (DVCS at 29%). Adaptive
+the frame itself. Across all six signal classes, at p_fake 1e-5, the
+rate is 12 fakes/frame, with only 66-100% efficiency by class (DVCS is
+worst, at 66%). At p_fake 1e-8, the rate is 2.5 fakes/frame, with 29-94%
+efficiency (DVCS at 29%). Adaptive
 mode discards low-multiplicity signal FIRST as it tightens. The two
 events lost at a fixed threshold of 4 are the same low-multiplicity
 population. But adaptive mode's per-frame adaptivity makes this effect
@@ -508,7 +511,7 @@ The plugin derives both, once per frame, from the single
 `nsigma_window` confidence level and each pool's own measured hit
 resolution: `dt = nsigma_window * sqrt(2) * max(sigma over that pool's
 hits this frame)`. The plugin stores this value per candidate, in
-weights[11]/[17], described below, rather than assuming a constant value
+the per-frame EventBuilderFrameInfo record (indices 3/4), described below, rather than assuming a constant value
 across a file. The `sqrt(2)` factor is the quadrature width of the
 worst-case *pair*: two hits both at the pool's own worst resolution.
 This is provably the widest pairwise gap the pool can produce, since
@@ -518,10 +521,9 @@ and `dt_tof≈0.13 ns`, TOF-only. See `EventBuilder_factory.h`'s
 derivation comment for the full reasoning.
 
 Both groups use the same `p_fake`. Silicon has no trigger group, by
-construction. The developers considered per-detector significances and
-rejected them. A per-detector-per-cell mu is too small to estimate
-stably per frame. Also, the trigger counts combined cell occupancy
-anyway.
+construction. Per-detector significances are not used: a
+per-detector-per-cell mu is too small to estimate stably per frame, and
+the trigger counts combined cell occupancy anyway.
 
 `topology:threshold` and S are complementary, not alternatives. The
 threshold is the PHYSICAL floor. It sets a minimum cluster size for a
@@ -565,39 +567,25 @@ per frame, where `n_tof` is the number of TOF hits active in a typical
 window. Unlike the combined channel's O(ncells) argmax, this scales with
 *background density*, not grid size.
 
-Two implementations were built and empirically validated against each
-other (bit-identical candidates, indistinguishable wall time, on real
-gold-coating/vacuum/vanilla sweeps): an incrementally-maintained global
-list of active TOF-hit indices (entering once via `hi`, leaving once via
-`lo`, same discipline as the outer scan itself), and a per-cell tracker
-that maintains each cell's own best TOF-window count as hits enter/leave,
-turning the query into an O(ncells) read instead of an O(n_tof) rescan.
-Production uses the per-cell design (`CellTracker` in
-`EventBuilder_factory.h`), since its underlying machinery generalizes to a
-future second timing-sensitive detector group, should one ever need its
-own nested coincidence test the way TOF does today.
+Production uses a per-cell tracker (`CellTracker` in
+`EventBuilder_factory.h`) that maintains each cell's own best TOF-window
+count as hits enter or leave, turning the query into an O(ncells) read
+instead of an O(n_tof) rescan. Its machinery generalizes to a future
+second timing-sensitive detector group, should one ever need its own
+nested coincidence test the way TOF does today.
 
-**Caveat for pile-up.** Both implementations share the same worst case:
-whenever background hits concentrate into few cells — which is exactly
-what happens at the coarsest grid (`theta_bins=phi_bins=1`, the grid
-adaptive-threshold mode uses by default, since it needs one global
-occupancy estimate rather than per-cell ones) — `n_tof` (and with it this
-term's cost) grows, and grows further as pile-up raises the background hit
-rate. Measured on real sweeps: at the production grid (12x8) the trigger
-runs ~50 Hz/file; at grid 1x1 (adaptive mode's default), ~3 Hz — about 15x
-slower, reproduced identically in both implementations, and NOT explained
-by candidate count (the 12x8 config emits far *more* candidates yet is the
-faster of the two) — confirming it's the per-query TOF-subwindow cost
-itself that scales with density. This is not currently on the production
-hot path (the sweep winners for both real background variants are
-grid-based, not adaptive/1x1 — see the eic-shell repo's `marco.md` §5.4 for
-the full numbers), but is worth remembering if adaptive/1x1 sweeps become
-routine under heavier pile-up. (An earlier design question — generalizing
-`CellTracker` to the combined MPGD+TOF channel too, for pile-up robustness
-— was considered and rejected: the combined channel has no nested-window
-problem to solve, since every hit in `[lo, hi)` already satisfies `dt` by
-construction, so its O(ncells) argmax cost is already density-independent
-and wouldn't benefit from `CellTracker`'s machinery.)
+**Caveat for pile-up.** Whenever background hits concentrate into few
+cells, which is exactly what happens at the coarsest grid
+(`theta_bins=phi_bins=1`, the grid adaptive-threshold mode uses by
+default, since it needs one global occupancy estimate rather than
+per-cell ones), `n_tof` grows, and grows further as pile-up raises the
+background hit rate. This is not currently on the production hot path,
+since the trigger normally runs on the finer grid, but is worth
+remembering if adaptive/1x1 configurations become routine under heavier
+pile-up. Note that the combined channel has no nested-window problem to
+solve: every hit in `[lo, hi)` already satisfies `dt` by construction, so
+its O(ncells) argmax cost is already density-independent and would not
+benefit from `CellTracker`'s machinery.
 
 ### What S/S_TOF are, statistically — read before using them
 
@@ -625,21 +613,20 @@ to a p-value, through the normal distribution, overstates the rarity.
 
   Here is a concrete example. With `mu = 0.01` and `c = 2`, the formula
   gives `S = 19.9`. But the exact tail is `P(X >= 2 | 0.01) ~ 5e-5`, a
-  rarity of about 4 sigma, not 20. The developers measured this across a
-  real gold-coating slice, where EVERY candidate has `mu < 1`. The
-  stored score over-reads the exact one-sided Poisson-tail sigma, by a
-  median factor of about 2 times, and up to about 9 times. For example,
-  a "6.8 sigma" fake is really about 3.2 sigma. The code also returns a
-  99.0 sentinel value when `mu == 0`. This sentinel is a symptom of the
-  same low-mu pathology.
+  rarity of about 4 sigma, not 20. At the low `mu < 1` typical of every
+  candidate, the stored score over-reads the exact one-sided
+  Poisson-tail sigma, by a median factor of about 2 times, and up to
+  about 9 times. For example, a "6.8 sigma" fake is really about 3.2
+  sigma. The code also returns a 99.0 sentinel value when `mu == 0`.
+  This sentinel is a symptom of the same low-mu pathology.
 
   The consequence is this: treat `S` and `S_TOF` as monotone RANKING
   variables, for offline cuts and as GNN input features. For those uses,
   only the ordering matters, and the ordering is fine. Where you need an
   actual probability at low `mu`, compute the Poisson survival
-  `P(X >= c | mu)` directly. Both `cmax` (weights[18]) and `mu`
-  (weights[7]) are stored for exactly this purpose. The SRO script
-  `audit_diagnostics.py` renders the Pearson-vs-exact-tail comparison,
+  `P(X >= c | mu)` directly. Both `cmax` (weights[7]) and `mu`
+  (weights[18]) are stored for exactly this purpose. The external
+  diagnostics tooling renders the Pearson-vs-exact-tail comparison,
   and the P(X=n)/P(X>=k) curves, per dataset.
 
 **3. The `mu` estimate assumes an equal per-cell background share.**
@@ -663,13 +650,12 @@ two reasons they might not, with the status of each:
     Different theta rings still cross different detector layers, such
     as barrel versus endcap, with different radii and channel
     densities. Synchrotron background is also not azimuthally uniform.
-    The developers measured this on the pre-fix binning. The
-    per-theta-row background occupancy spanned about 32 times, well
-    beyond the 7.6-times solid-angle part. A frame-wide scalar `mu`
-    cannot capture this. A per-cell `mu_j`, a rolling or historical
-    background estimate, is the proper fix. This fix is future work.
-    The winning-cell record, weights[20..22], exists to measure the
-    residual non-uniformity empirically.
+    Under the pre-fix binning, per-theta-row background occupancy
+    spanned about 32 times, well beyond the 7.6-times solid-angle part.
+    A frame-wide scalar `mu` cannot capture this. A per-cell `mu_j`, a
+    rolling or historical background estimate, is the proper fix. This
+    fix is future work. The winning-cell record, weights[20..22],
+    exists to measure the residual non-uniformity empirically.
 
 Despite the parallel `S`/`S_TOF` naming, `S_TOF`'s hit pool is a subset
 of `S`'s: TOF hits ⊂ TOF+MPGD hits. Cutting on both together is not
@@ -679,16 +665,15 @@ is no third `S_Si`. Si/B0 hits are gated by the already-fixed `t0` (see
 "gate" above). Si/B0 hits never enter `hits` or the coincidence count.
 So there is no cluster for them to "stick out" of.
 
-The developers measured this separation on gold-coating dis_nc data,
-with p_fake=1e-8. This measurement is HISTORICAL: it used the
-pre-2026-07-10 pythia-only truth labels and the equal-width theta
-binning, both now superseded (see "Real or fake" and "Why equal solid
-angle" above). Treat it as indicative only. The median S was 32 for real
-candidates, versus 19 for fake candidates. The median S_TOF was 117 for
+One measurement of this separation, on gold-coating dis_nc data with
+p_fake=1e-8, used truth labels and theta binning both since superseded
+(see "Real or fake" and "Why equal solid angle" above), so treat it as
+indicative only. The median S was 32 for real candidates, versus 19 for
+fake candidates. The median S_TOF was 117 for
 real candidates, versus 28 for fake candidates. Separation varies by
 class and background variant. The current production baseline's
-separation, per class and variant, is in the SRO dataset diagnostics
-report. You can choose the operating point OFFLINE. You can produce
+separation, per class and variant, is in the external dataset
+diagnostics report. You can choose the operating point OFFLINE. You can produce
 candidates loosely, then cut on S or S_TOF later. This cut is
 reversible. Both values are also free input features for the GNN.
 
@@ -710,7 +695,7 @@ rerunning eicrecon. FAR(cut) is the number of fake candidates with
 `S >= cut`, per frame. Efficiency(cut) is the fraction of real
 candidates with `S >= cut`. This whole trade-off curve is computable
 offline, from the stored per-candidate `S`/`S_TOF`/`cmax`/`mu` weights
-alone. The SRO diagnostics dashboard renders this trade-off curve. It
+alone. The external diagnostics dashboard renders this trade-off curve. It
 also renders a small table of FAR and efficiency, at a few
 representative cuts: the applied threshold, and the 50th, 80th, and 95th
 percentile of the fake-S distribution. See Notes. Cutting harder is a
@@ -741,7 +726,7 @@ hits per candidate, exactly like current-frame hits.
   This requires `nthreads >= 2` and
   `jana:max_inflight_timeslices > forward_frames`. When these conditions
   are not available, the unfolder prints a loud warning and runs with 0
-  instead of aborting. Neither case adds output latency. The SRO
+  instead of aborting. Neither case adds output latency. The production
   pipeline runs eicrecon with 4 threads. So forward recovery is fully
   active there.
 
@@ -776,40 +761,68 @@ That comment is the ground truth:
 |---|---|
 | 0 | t0 (ns) |
 | 1 | t0sigma (ns) |
-| 2 | real/fake flag (simulation only: 1 = matched MC collision, 2 = fake) |
-| 3 | S — combined-group standardized excess (see caveat under "Stored significance") |
-| 4 | trigger-cluster size (fast hits in the consumed window) |
-| 5 | matched MC collision time (ns; simulation only; -1e9 = none) |
-| 6 | S_TOF — TOF-group standardized excess |
-| 7 | mu — measured combined-group background (hits/cell/window, frame-wide flat share) |
-| 8 | mu_TOF — measured TOF-group background |
-| 9 | k — combined-group count threshold actually applied |
-| 10 | k_TOF — TOF-group count threshold (999 sentinel when disabled) |
-| 11 | dt (ns) — combined-group coincidence window, DERIVED per frame from `nsigma_window` (not a fixed constant — can vary candidate to candidate) |
-| 12 | topology:threshold |
-| 13 | topology:theta_bins |
-| 14 | topology:phi_bins |
-| 15 | adaptive_threshold |
-| 16 | p_fake |
-| 17 | dt_tof (ns) — TOF-group coincidence window, same per-candidate derivation as weights[11] |
-| 18 | cmax — combined-group coincidence count that fired (raw numerator of S) |
-| 19 | cmax_TOF — TOF-group coincidence count |
-| 20 | winning cell theta bin |
-| 21 | winning cell phi bin |
-| 22 | winning grid (1 = plain, 2 = half-cell staggered) |
-| 23 | p_tail = P(X >= cmax \| Poisson(mu)) — EXACT upper-tail background probability; the rigorous offline cut variable (honest at any mu, unlike S). Derivable from cmax[18] + mu[7]; stored so downstream doesn't recompute |
-| 24 | E_calo (GeV) — calorimeter-coincidence energy: summed time-aligned cluster energy with \|t_cluster − t0\| <= dt. SCORE ONLY, never in the trigger decision (efficiency untouched); measured real-vs-fake rank AUC 0.981 at reco-cluster level (ddis gold-coating, 100 frames) where count statistics saturate at ~0.77 — see Outlook / TODO |
-| 25 | n_tracklets — vertex-pointing fast-hit pairs in the fired window: barrel pairs (Δφ < 0.05, Δr > 50 mm) whose straight line extrapolates to \|z0\| < 100 mm, plus same-side endcap pairs (Δφ < 0.1, Δ\|z\| > 50 mm) passing the projective test \|r2 − r1·z2/z1\| < 20 mm. SCORE ONLY; offline AUC 0.911 (barrel 0.864). Windows absorb solenoid curvature, not detector resolution |
-| 26 | trigger-tag bitmask — INCLUSION tags (each an independent positive excess; the builder cuts on none; downstream stream assignment = union of tags): bit0 backward-ECal region tag (in-window cluster, nhits >= 10); bit1 = bit0 AND >= 1 backward endcap tracklet; bit2/bit3 same for barrel ECal (barrel tracklet); bit4/bit5 same for forward ECal (forward endcap tracklet); bit6 B0 tag (>= 4 in-window B0 hits); bit7 ZDC tag (in-window ZDC-ECal cluster hits sum >= 50). Combined tags, evaluable offline: cTag1 = #set{0,2,4} >= 2 AND bit6; cTag2 = #set{1,3,5} >= 2 AND bit6; cTag3 = #set{0,2,4} >= 2 AND bit7; cTag4 = #set{1,3,5} >= 2 AND bit7; cTag5 = #set{0,2,4} = 3; cTag6 = #set{1,3,5} >= 2 |
-| last | number of candidates in this frame (appended by the unfolder — always the FINAL element, don't address it by fixed index) |
+| 2 | flag (simulation only): the number of real MC collisions inside this candidate's dt window. 0 = fake, 1 = one real collision, 2+ = true pile-up. Real means flag > 0 |
+| 3 | mc_t: the EARLIEST matched collision's time, in ns (simulation only; -1e9 = none). When flag >= 2 the other collisions' times are in trigger_classes (index 25+) |
+| 4 | S: combined-group standardized excess (see the caveat under "Stored significance") |
+| 5 | S_TOF: TOF-group standardized excess |
+| 6 | p_tail = P(X >= cmax \| Poisson(mu)): the exact upper-tail background probability behind S |
+| 7 | cmax: combined-group coincidence count that fired (the numerator of S) |
+| 8 | cmax_TOF: TOF-group coincidence count |
+| 9 | E_calo (GeV): calorimeter-coincidence energy, the summed time-aligned cluster energy with \|t_cluster − t0\| <= dt. Score only; never in the trigger decision |
+| 10 | n_tracklets: vertex-pointing fast-hit pairs in the fired window. Score only |
+| 11 | n_expected: in-acceptance stable charged MC particles of the earliest matched collision. Tracking-efficiency denominator |
+| 12 | trk_threshold_cfg (eventbuilder:trigger:min_tracklets) |
+| 13 | trk_pass: 1 if n_tracklets >= index 12 |
+| 14 | cal_threshold_cfg (eventbuilder:trigger:min_cal_energy, GeV) |
+| 15 | cal_pass: 1 if E_calo >= index 14 |
+| 16 | trigger bitmask: bit0 = TOF group fired (cmax_TOF >= k_TOF), bit1 = combined group fired (cmax >= k), bit2: backward-ECal region tag (in-window cluster, nhits >= 10), bit3: bit2 plus >= 1 backward endcap tracklet, bit4/bit5: same for barrel ECal, bit6/bit7: same for forward ECal, bit8: B0 tag (>= 4 in-window B0 hits), bit9: ZDC tag (in-window ZDC-ECal cluster hits sum >= 50). Inclusion tags only |
+| 17 | trigger_classes_mask: bit N = class_index N (0-25) had a collision within dt of this candidate. 0 = none |
+| 18 | mu: winning cell's leave-one-out background (per candidate, not frame-wide) |
+| 19 | k: winning cell's applied count threshold (per candidate) |
+| 20 | winning cell's theta bin |
+| 21 | winning cell's phi bin |
+| 22 | winning grid: 1 = plain, 2 = half-cell staggered |
+| 23 | S_empirical: significance of cmax against this frame's own sideband distribution (the empirical_band method), always stored regardless of the active null model |
+| 24 | fano: variance/mean of the sideband window counts. 1 = Poisson-like |
+| 25+ | trigger_classes (on by default via store_coincident_list): index 25 = N, the coincident-collision count (equals flag), then N (time, stream) pairs at 26+2k / 27+2k. stream = generatorStatus/1000 of the collision's base status: 0 = native primary, >= 10 = a physics class (class_index = (stream-10)/10) |
+
+Frame-constant configuration lives in a separate **`EventBuilderFrameInfo`**
+collection (same `edm4hep::EventHeader` type), one entry per frame, copied
+into each child with `eventNumber = frame*1000` — join it to candidates
+(`frame*1000 + candidate`) via `eventNumber / 1000`:
+
+| index | value |
+|---|---|
+| 0 | n_physics_events: physics events injected into this frame (pileup-efficiency denominator; the flag > 0 candidate count is the numerator) |
+| 1 | mu_TOF: measured TOF-group background (hits per cell per window) |
+| 2 | k_TOF: TOF-group count threshold applied (999 marks it disabled) |
+| 3 | dt, in ns: combined-group coincidence window this frame (derived per frame from `nsigma_window`) |
+| 4 | dt_tof, in ns: TOF-group coincidence window this frame |
+| 5 | topology:threshold |
+| 6 | topology:theta_bins |
+| 7 | topology:phi_bins |
+| 8 | adaptive-mode flag |
+| 9 | p_fake |
 
 Separately, each PhysicsEvent also carries a **`PrefilterScores`**
 collection, an `edm4hep::EventHeader`, when the GNN prefilter runs. Its
-`weights[0..6]` hold the 7-class softmax probabilities, with class 0 =
-BKG. This is the GNN decision, stored per event. So the background veto
-and the physics-class tag become reversible OFFLINE cuts, needing no
-ONNX reload. See the ONNX prefilter section. This collection is empty
-when no model is configured.
+`weights[]` hold the softmax class probabilities (class 0 = BKG; the
+class count depends on the loaded model, for example 27 for
+`prefilter-20270803.onnx`). This is the GNN decision, stored per event.
+So the background veto and the physics-class tag become reversible
+OFFLINE cuts, needing no ONNX reload. See the ONNX prefilter section.
+This collection is empty when no model is configured.
+
+Two further collections, **`PrefilterLambdaK`** and **`PrefilterSegLogits`**
+(same `edm4hep::EventHeader` type), carry the model's other raw outputs
+when `eventbuilder:prefilter:store_aux_outputs=1` is set and the loaded
+model actually declares them (looked up by name, not position).
+`PrefilterLambdaK.weights[]` is the raw `lambda_k` output; `PrefilterSegLogits.weights[]`
+is the raw per-hit `seg_logits` output, flattened in the same hit order
+as the GNN's own hit input (see the ONNX prefilter section), truncated
+to the real hit count. Neither is trained to be physically meaningful
+yet — they exist for offline inspection of the model as it develops.
+Both are empty unless `store_aux_outputs` is on.
 
 Hit collections work as follows. Fast-detector hits are podio SUBSETS:
 references into the frame's collections, not copies. Slow-detector hits
@@ -901,7 +914,7 @@ default, with an empty model path.
 
 **Veto vs score-only.** With `prefilter:veto=1`, the default, a frame
 below threshold is dropped online. This drop is irreversible. With
-`prefilter:veto=0`, the GNN still runs. Its 7-class probabilities are
+`prefilter:veto=0`, the GNN still runs. Its class probabilities are
 stored per event, in the `PrefilterScores` collection (see "What each
 PhysicsEvent contains"). But NOTHING is dropped. The background veto and
 the physics-class tag become REVERSIBLE OFFLINE cuts, on the stored
@@ -911,23 +924,36 @@ follows the same rationale as keeping the trigger loose and cutting on
 significance offline: never throw away data online, just annotate it.
 The plugin stores the scores whenever a model runs, in either mode.
 
+**Model contract.** The GNN takes the hit features above plus a k-NN edge
+list per DGCNN layer (`edge_idx_0`, `edge_idx_1`, ...; the exact layer
+count is read from the loaded model itself, not hardcoded). Its first
+declared output is always read as the classifier (`probs`). A model may
+declare further outputs — for example `lambda_k` (frame-level) and
+`seg_logits` (per-hit) in `prefilter-20270803.onnx` — but those are
+ignored by default, since neither is trained to be physically meaningful
+yet. Set `prefilter:store_aux_outputs=1` to store them anyway, raw, in
+the `PrefilterLambdaK`/`PrefilterSegLogits` collections (see "What each
+PhysicsEvent contains"), for offline inspection as the model develops.
+Both are looked up by name, so their absence in an older/simpler model is
+not an error.
+
 ```sh
--Peventbuilder:prefilter:onnx_model=/mnt/local/share/models/prefilter-gold-new-100epochs-2500hits.onnx
+-Peventbuilder:prefilter:onnx_model=/mnt/local/share/models/prefilter-20270803.onnx
 -Peventbuilder:prefilter:score_threshold=0.5
 -Peventbuilder:prefilter:max_hits=2500        # fixed input size models
 -Peventbuilder:prefilter:veto=0               # score-only: store scores, drop nothing
+-Peventbuilder:prefilter:store_aux_outputs=1  # also store lambda_k/seg_logits, if the model has them
 ```
 
 ## Outlook / TODO
 
-Measured conclusions this list is built on (2026-07, ddis smoke tests, 100
-frames, gold-coating): every count-based score saturates at AUC ~0.77
-(S at 1x1 = 0.770; 12x8 = 0.724 — binning only dilutes); barrel tracklet
-pointing reaches AUC 0.864 with no Kalman; background is over-dispersed
-(Poisson GOF rejected, Fano 2–5 measured on raw input) because primaries
-produce multi-hit secondaries — so absolute Poisson tails are nominal only.
+This list rests on these measured facts: every count-based score
+saturates at an AUC around 0.77; barrel tracklet pointing reaches AUC
+0.864 with no Kalman filter; and background is over-dispersed (Fano 2-5
+on raw input), because primaries produce multi-hit secondaries, so
+absolute Poisson tails are nominal, not exact.
 
-- **Tracklet pointing (`n_tracklets`, weights[24+])** — pairs of gated fast
+- **Tracklet pointing (`n_tracklets`, weights[10])** — pairs of gated fast
   hits, layer-aware `dphi` window (must absorb solenoid curvature, ~0.05-0.1
   rad), straight-line `z0` extrapolation to the beamline (barrel) or
   origin-consistency angle (endcap two-plane). Score-only, computed on fired
@@ -956,11 +982,9 @@ produce multi-hit secondaries — so absolute Poisson tails are nominal only.
   Common-mode for signal (collisions are bunch-locked too), so it sharpens
   calibration rather than separation, and makes out-of-time background
   (afterglow, activation) stand out.
-- **Barrel-ECal clusters starved at Timeslice level** — measured (ddis
-  gold-coating, 19 frames, debug_calo dump): only 5 barrel clusters >0.1 GeV
-  vs 49/43 in the N/P endcaps, and a 0.65 GeV / 2000-hit ScFi shower (a
-  4.5 GeV electron at the backward barrel edge) produced NO cluster at all —
-  so E_calo (weights[24]) currently runs mostly on endcap information and
+- **Barrel-ECal clusters starved at Timeslice level** — the barrel produces
+  far fewer clusters than the endcaps at Timeslice level, so E_calo
+  (weights[9]) currently runs mostly on endcap information and
   barrel-only events lose their calo tag. Suspect: the merged-barrel
   cluster mirror (`EcalBarrelClusterFrame` -> TimeAlign) is missing an
   ingredient at Timeslice level; candidate fix is wiring
@@ -985,16 +1009,15 @@ produce multi-hit secondaries — so absolute Poisson tails are nominal only.
   adaptive mode) its own threshold k_i, with a cell -> cos-theta-band ->
   global statistics ladder (`topology:mu_mode`, `topology:mu_min_hits`).
   Estimator independence: trigger thresholds use the frame-wide estimate
-  (self-contamination O(w/N) ~ 2%, irrelevant to firing); the STORED
-  significance is evaluated leave-one-out — the candidate's own window is
-  excluded from the null it is scored against. Measured effect (ddis
-  gold-coating, 100 frames, 12x8): S rank-AUC 0.724 -> 0.895 at identical
-  efficiency and fake rate — the dominant geometric bias removed. The
-  residual p_tail non-uniformity (KS ~ 0.6) is the signature of TEMPORAL
-  correlations (burstiness), which no spatial mu map can absorb — that is
-  the empirical-calibration / over-dispersed-model item above, not a defect
-  of mu_i. Natural upgrade if per-frame statistics ever become limiting: a
-  cross-frame running background per cell via TimesliceBuffer_service.
+  (self-contamination is small, around 2%, and irrelevant to firing); the
+  stored significance is evaluated leave-one-out, with the candidate's own
+  window excluded from the null it is scored against. This removes the
+  dominant geometric bias at unchanged efficiency and fake rate. The
+  residual p_tail non-uniformity is the signature of temporal correlations
+  (burstiness), which no spatial mu map can absorb; that is the
+  empirical-calibration/over-dispersed-model item above, not a defect of
+  mu_i. Natural upgrade if per-frame statistics ever become limiting: a
+  cross-frame running background per cell, through TimesliceBuffer_service.
 
 ## Configuration reference
 
@@ -1065,6 +1088,7 @@ Prefilter (`eventbuilder:prefilter:*`):
 | `max_hits` | `0` | Pad/truncate to fixed model input size; 0 = dynamic |
 | `k_neighbors` | `16` | kNN graph k per DGCNN layer |
 | `time_weight` | `1.0` | Time-axis scale in layer-0 spacetime kNN |
+| `store_aux_outputs` | `0` | 1 = also store `PrefilterLambdaK`/`PrefilterSegLogits`, the model's raw `lambda_k`/`seg_logits` outputs, when it declares them. Neither is trained/meaningful yet |
 
 Example:
 
@@ -1094,26 +1118,15 @@ every stage reads them per hit via `getTimeError()`.
   ACTS chain, on unfolded children. This aborts the process. Narrow
   `podio:output_collections` instead.
 
-  ROOT CAUSE (traced 2026-07): the unfolder projects the gated
-  `*RecHits`, `*RawHits`, `*RawHitLinks`, and `*RawHitAssociations`
-  collections into each child event. It shadows the standard factories,
-  through EulerianStore. But it does NOT project the TOF `Measurement2D`
-  collections (`TOFBarrelClusterHits`/`TOFEndcapClusterHits`, produced by
-  `LGADHitClustering`). The `CentralTrackerMeasurements` collector
-  requests them. The LGAD -> digi -> charge-sharing chain then re-runs on
-  the child. It throws on the missing Timeslice-level sim inputs. The
-  resulting null hits trip `gsl::not_null` in `CollectionCollector_factory`,
-  an uncatchable `std::terminate` (hence the message "terminate called
-  without an active exception").
-
-  FIXED (2026-07): the unfolder now projects the TOF Measurement2D
-  collections like the other gated products, gated around t0 by each
-  measurement's own time error (`covariance.zz`). The endcap needed a
-  frame-level mirror of its bypass ClusterHits chain, in `ECTOF.cc`
-  (`TOFEndcapClusterHitFrame`, following the BTOF pattern). Factories
-  whose outputs are NOT projected, the digitization intermediates, still
-  abort if requested directly on children. Keep
-  `podio:output_collections` narrowed.
+  The unfolder projects the gated `*RecHits`, `*RawHits`,
+  `*RawHitLinks` (the single raw-hit truth carrier for both the tracker
+  and calo families; ActsToTracks consumes them too), and TOF `Measurement2D`
+  collections (`TOFBarrelClusterHits`/`TOFEndcapClusterHits`) into each
+  child event, shadowing the standard factories through EulerianStore.
+  The Measurement2D projection is gated around t0 by each measurement's
+  own time error (`covariance.zz`). Factories whose outputs are not
+  projected, the digitization intermediates, still abort if requested
+  directly on children. Keep `podio:output_collections` narrowed.
 - Frame-level registration exists for the central trigger trackers (TOF,
   MPGD, Si, B0), plus B0ECAL, BEMC, EEMC, FEMC, EHCAL, BHCAL, FHCAL, and
   ZDC. PFRICH and LUMISPECCAL also have frame-level code, but it stays
@@ -1144,7 +1157,7 @@ every stage reads them per hit via `getTimeError()`.
   is set to outscore the generic one. If this regresses again, look for
   `Creating event pool with level=PhysicsEvent` in the log, where you
   expected `level=Timeslice`.
-- Diagnostics: run `make diagnostics <file|class>` in the SRO repo. This
+- Diagnostics: run `make diagnostics <file|class>` in the production repo. This
   command renders purity, efficiency, applied gates, and S/S_TOF
   distributions. It also renders the offline efficiency-vs-false-alarm-rate
   curve, with an operating-point table. It renders these from any output

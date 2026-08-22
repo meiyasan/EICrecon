@@ -296,13 +296,13 @@ EdgeIndex ONNXRuntime_gnn::build(const float* x, int N, int D, int k,
 #endif // USE_NANOFLANN
 
 // ---------------------------------------------------------------------------
-// Shared: build the 3 edge sets required by a 3-layer DGCNN.
+// Shared: build the 4 edge sets required by a 4-layer DGCNN.
 // ---------------------------------------------------------------------------
 
-std::array<EdgeIndex, 3> ONNXRuntime_gnn::build_dgcnn_edges(
+std::array<EdgeIndex, 4> ONNXRuntime_gnn::build_dgcnn_edges(
     const float* x, int N, int k, float time_weight, int n_features) const
 {
     const float weights[4] = {1.f, 1.f, 1.f, time_weight};
     EdgeIndex e0 = build(x, N, 4, k, weights, n_features);
-    return {e0, e0, e0};
+    return {e0, e0, e0, e0};
 }

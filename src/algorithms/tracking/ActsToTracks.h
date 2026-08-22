@@ -8,7 +8,7 @@
 #include <algorithms/algorithm.h>
 #include <edm4eic/MCRecoTrackParticleAssociationCollection.h>
 #include <edm4eic/MCRecoTrackParticleLinkCollection.h>
-#include <edm4eic/MCRecoTrackerHitAssociationCollection.h>
+#include <edm4eic/MCRecoTrackerHitLinkCollection.h>
 #include <edm4eic/Measurement2DCollection.h>
 #include <edm4eic/TrackCollection.h>
 #include <edm4eic/TrackParametersCollection.h>
@@ -25,7 +25,7 @@ namespace eicrecon {
 using ActsToTracksAlgorithm = algorithms::Algorithm<
     algorithms::Input<edm4eic::Measurement2DCollection, edm4eic::TrackSeedCollection,
                       Acts::ConstVectorMultiTrajectory, Acts::ConstVectorTrackContainer,
-                      std::optional<edm4eic::MCRecoTrackerHitAssociationCollection>>,
+                      std::optional<edm4eic::MCRecoTrackerHitLinkCollection>>,
     algorithms::Output<edm4eic::TrajectoryCollection, edm4eic::TrackParametersCollection,
                        edm4eic::TrackCollection,
                        std::optional<edm4eic::MCRecoTrackParticleLinkCollection>,
@@ -40,7 +40,7 @@ public:
                                   "inputTrackSeeds",
                                   "inputActsTrackStates",
                                   "inputActsTracks",
-                                  "inputRawTrackerHitAssociations",
+                                  "inputRawTrackerHitLinks",
                               },
                               {
                                   "outputTrajectories",

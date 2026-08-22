@@ -14,7 +14,9 @@
 #include <TFile.h>
 #include <TObject.h>
 #include <edm4hep/EventHeaderCollection.h>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <podio/CollectionBase.h>
@@ -98,6 +100,30 @@ void JEventSourcePODIO::Init() {
   GetApplication()->SetDefaultParameter("podio:print_type_table", m_print_type_table,
                                         "Print list of collection names and their types");
 
+  // Streaming watch mode: keep this process alive after the input file is
+  // exhausted and continue with new complete files appearing in a directory
+  // (one long-lived eicrecon per production stream; geometry loads once).
+  GetApplication()->SetDefaultParameter(
+      "podio:watch_directory", m_watch_directory,
+      "Streaming mode: after exhausting the input file, poll this directory for new "
+      "complete *.edm4hep.root files and continue with them instead of finishing. "
+      "Empty (default) = off.");
+  GetApplication()->SetDefaultParameter(
+      "podio:watch_poll_ms", m_watch_poll_ms,
+      "Streaming mode: minimum milliseconds between directory scans (default 5000).");
+  GetApplication()->SetDefaultParameter(
+      "podio:watch_max_files", m_watch_max_files,
+      "Streaming mode: finish after this many additional files (output rotation); 0 = no limit.");
+  GetApplication()->SetDefaultParameter(
+      "podio:watch_settle_seconds", m_watch_settle_s,
+      "Streaming mode: ignore files modified more recently than this many seconds "
+      "(lets the writer finish).");
+  GetApplication()->SetDefaultParameter(
+      "podio:watch_state_file", m_watch_state_file,
+      "Streaming mode: path of a text ledger of already-processed files (one absolute "
+      "path per line). Loaded at start and appended to, so rotated watch instances "
+      "never re-process a file. Empty = in-memory only.");
+
   // Hopefully we won't need to reimplement background event merging. Using podio frames, it looks like we would
   // have to do a deep copy of all data in order to insert it into the same frame, which would probably be
   // quite inefficient.
@@ -147,6 +173,19 @@ void JEventSourcePODIO::Open() {
     m_log->info("PODIO version: file={} (executable={})", version, podio::version::build_version);
 
     Nevents_in_file = m_reader->getEntries("events");
+    if (!m_watch_directory.empty()) {
+      // Load the persistent ledger (rotation support), then record the
+      // initial input so the watch scan never re-processes it.
+      if (!m_watch_state_file.empty()) {
+        std::ifstream ledger(m_watch_state_file);
+        std::string line;
+        while (std::getline(ledger, line)) {
+          if (!line.empty())
+            m_watch_seen.insert(line);
+        }
+      }
+      WatchMarkProcessed(std::filesystem::absolute(GetResourceName()).string());
+    }
     m_log->info("Opened PODIO file \"{}\" with {} events (format auto-detected)", GetResourceName(),
                 Nevents_in_file);
 
@@ -197,7 +236,19 @@ JEventSourcePODIO::Result JEventSourcePODIO::Emit(JEvent& event) {
 
   // Check if we have exhausted events from file
   if (Nevents_read >= Nevents_in_file) {
-    if (m_run_forever) {
+    if (!m_watch_directory.empty()) {
+      // Streaming watch mode: try to continue with the next complete file
+      // from the watched directory; otherwise ask JANA to call again later.
+      if (m_watch_max_files > 0 && m_watch_files_done >= m_watch_max_files) {
+        m_log->info("watch mode: reached watch_max_files={} — finishing", m_watch_max_files);
+        return Result::FailureFinished;
+      }
+      if (WatchOpenNextFile()) {
+        // fall through and read the first frame of the new file
+      } else {
+        return Result::FailureTryAgain;
+      }
+    } else if (m_run_forever) {
       Nevents_read = 0;
     } else {
       return Result::FailureFinished;
@@ -214,7 +265,10 @@ JEventSourcePODIO::Result JEventSourcePODIO::Emit(JEvent& event) {
                   Nevents_read, event_headers.size());
       m_use_event_headers = false;
     } else {
-      event.SetEventNumber(event_headers[0].getEventNumber());
+      // In watch mode, frame numbers restart per input file; the running
+      // offset keeps eventNumber (and therefore the frame*1000+candidate
+      // join key downstream) unique across the whole stream.
+      event.SetEventNumber(event_headers[0].getEventNumber() + m_watch_frame_offset);
       event.SetRunNumber(event_headers[0].getRunNumber());
     }
   }
@@ -230,6 +284,111 @@ JEventSourcePODIO::Result JEventSourcePODIO::Emit(JEvent& event) {
   event.Insert(frame.release()); // Transfer ownership from unique_ptr to JFactoryT<podio::Frame>
   Nevents_read += 1;
   return Result::Success;
+}
+
+//------------------------------------------------------------------------------
+// RootFileComplete
+//
+/// Cheap truncation check without opening the file through ROOT: a healthy
+/// ROOT file's header records fEND, the logical end offset; a file whose
+/// on-disk size is below fEND is still being written (or was interrupted).
+//------------------------------------------------------------------------------
+bool JEventSourcePODIO::RootFileComplete(const std::string& path) {
+  std::ifstream f(path, std::ios::binary);
+  if (!f)
+    return false;
+  char h[20];
+  f.read(h, 20);
+  if (f.gcount() != 20 || std::string_view(h, 4) != "root")
+    return false;
+  auto be32 = [&](int off) {
+    return (uint32_t(uint8_t(h[off])) << 24) | (uint32_t(uint8_t(h[off + 1])) << 16) |
+           (uint32_t(uint8_t(h[off + 2])) << 8) | uint32_t(uint8_t(h[off + 3]));
+  };
+  const uint32_t version = be32(4);
+  uint64_t fend          = 0;
+  if (version >= 1000000) {
+    fend = (uint64_t(be32(12)) << 32) | be32(16);
+  } else {
+    fend = be32(12);
+  }
+  std::error_code ec;
+  const auto size = std::filesystem::file_size(path, ec);
+  return !ec && fend > 0 && size >= fend;
+}
+
+//------------------------------------------------------------------------------
+// WatchMarkProcessed
+//------------------------------------------------------------------------------
+void JEventSourcePODIO::WatchMarkProcessed(const std::string& abs_path) {
+  if (!m_watch_seen.insert(abs_path).second)
+    return; // already recorded
+  if (!m_watch_state_file.empty()) {
+    std::ofstream ledger(m_watch_state_file, std::ios::app);
+    ledger << abs_path << "\n";
+  }
+}
+
+//------------------------------------------------------------------------------
+// WatchOpenNextFile
+//
+/// Scan the watched directory (rate-limited by podio:watch_poll_ms) for the
+/// oldest not-yet-processed, complete, settled *.edm4hep.root file. When one
+/// is found, swap the podio reader onto it and reset the event counters.
+//------------------------------------------------------------------------------
+bool JEventSourcePODIO::WatchOpenNextFile() {
+  const auto now = std::chrono::steady_clock::now();
+  if (now - m_watch_last_poll < std::chrono::milliseconds(m_watch_poll_ms))
+    return false;
+  m_watch_last_poll = now;
+
+  std::vector<std::filesystem::path> candidates;
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::directory_iterator(m_watch_directory, ec)) {
+    if (ec)
+      return false;
+    bool ok = entry.is_regular_file(ec);
+    if (!ok)
+      ok = entry.is_symlink(ec);
+    if (!ok)
+      continue;
+    const auto& path = entry.path();
+    if (path.string().find(".edm4hep.root") == std::string::npos)
+      continue;
+    const auto abs = std::filesystem::absolute(path).string();
+    if (m_watch_seen.count(abs) != 0U)
+      continue;
+    // Let the writer settle before trusting the completeness check.
+    const auto mtime = std::filesystem::last_write_time(path, ec);
+    if (!ec) {
+      const auto age = std::chrono::duration_cast<std::chrono::seconds>(
+          std::filesystem::file_time_type::clock::now() - mtime);
+      if (age.count() < m_watch_settle_s)
+        continue;
+    }
+    if (!RootFileComplete(abs))
+      continue;
+    candidates.push_back(path);
+  }
+  if (candidates.empty())
+    return false;
+  std::sort(candidates.begin(), candidates.end());
+  const auto next = std::filesystem::absolute(candidates.front()).string();
+  try {
+    m_watch_frame_offset += Nevents_in_file; // frames of the file just finished
+    m_reader        = std::make_unique<podio::Reader>(podio::makeReader(next));
+    Nevents_in_file = m_reader->getEntries("events");
+    Nevents_read    = 0;
+    WatchMarkProcessed(next);
+    m_watch_files_done++;
+    m_log->info("watch mode: continuing with {} ({} events, file {} of stream)", next,
+                Nevents_in_file, m_watch_files_done + 1);
+    return true;
+  } catch (std::exception& e) {
+    m_log->warn("watch mode: failed to open {} ({}) — will retry later", next, e.what());
+    m_watch_seen.insert(next); // do not spin on a broken file
+    return false;
+  }
 }
 
 //------------------------------------------------------------------------------

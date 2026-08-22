@@ -7,7 +7,6 @@
 #include <JANA/JApplicationFwd.h>
 #include <JANA/Utils/JTypeInfo.h>
 #include <edm4eic/MCRecoTrackParticleAssociationCollection.h>
-#include <edm4eic/MCRecoTrackerHitAssociationCollection.h>
 #include <edm4eic/MCRecoTrackerHitLinkCollection.h>
 #include <edm4eic/Measurement2D.h>
 #include <edm4eic/TrackCollection.h>
@@ -76,19 +75,9 @@ void InitPlugin(JApplication* app) {
       {"CentralTrackingRecHits"}, // Output collection name
       app));
 
-  // Tracker hit associations collector
-  app->Add(new JOmniFactoryGeneratorT<
-           CollectionCollector_factory<edm4eic::MCRecoTrackerHitAssociation, true>>(
-      "CentralTrackingRawHitAssociations",
-      {"SiBarrelRawHitAssociations", "SiBarrelVertexRawHitAssociations",
-       "SiEndcapTrackerRawHitAssociations", "MPGDBarrelRawHitAssociations",
-       "OuterMPGDBarrelRawHitAssociations", "BackwardMPGDEndcapRawHitAssociations",
-       "ForwardMPGDEndcapRawHitAssociations", "TOFBarrelSharedRawHitAssociations",
-       "TOFEndcapSharedRawHitAssociations"},
-      {"CentralTrackingRawHitAssociations"}, // Output collection name
-      app));
-
-  // Tracker hit links collector
+  // Tracker hit links collector -- the truth input of the ACTS chain
+  // (ActsToTracks). RawHitAssociations are retired: RawHitLink is the
+  // single raw-hit truth carrier.
   app->Add(
       new JOmniFactoryGeneratorT<CollectionCollector_factory<edm4eic::MCRecoTrackerHitLink, true>>(
           "CentralTrackingRawHitLinks",
@@ -126,7 +115,7 @@ void InitPlugin(JApplication* app) {
           "CentralTrackerTruthSeeds",
           "CentralCKFTruthSeededActsTrackStatesUnfiltered",
           "CentralCKFTruthSeededActsTracksUnfiltered",
-          "CentralTrackingRawHitAssociations",
+          "CentralTrackingRawHitLinks",
       },
       {
           "CentralCKFTruthSeededTrajectoriesUnfiltered",
@@ -154,7 +143,7 @@ void InitPlugin(JApplication* app) {
                                                            "CentralTrackerTruthSeeds",
                                                            "CentralCKFTruthSeededActsTrackStates",
                                                            "CentralCKFTruthSeededActsTracks",
-                                                           "CentralTrackingRawHitAssociations",
+                                                           "CentralTrackingRawHitLinks",
                                                        },
                                                        {
                                                            "CentralCKFTruthSeededTrajectories",
@@ -184,7 +173,7 @@ void InitPlugin(JApplication* app) {
                                                            "CentralTrackSeeds",
                                                            "CentralCKFActsTrackStatesUnfiltered",
                                                            "CentralCKFActsTracksUnfiltered",
-                                                           "CentralTrackingRawHitAssociations",
+                                                           "CentralTrackingRawHitLinks",
                                                        },
                                                        {
                                                            "CentralCKFTrajectoriesUnfiltered",
@@ -210,7 +199,7 @@ void InitPlugin(JApplication* app) {
                                                                 "CentralTrackSeeds",
                                                                 "CentralCKFActsTrackStates",
                                                                 "CentralCKFActsTracks",
-                                                                "CentralTrackingRawHitAssociations",
+                                                                "CentralTrackingRawHitLinks",
                                                             },
                                                             {
                                                                 "CentralCKFTrajectories",
@@ -332,7 +321,7 @@ void InitPlugin(JApplication* app) {
           "B0TrackerTruthSeeds",
           "B0TrackerCKFTruthSeededActsTrackStatesUnfiltered",
           "B0TrackerCKFTruthSeededActsTracksUnfiltered",
-          "B0TrackerRawHitAssociations",
+          "B0TrackerRawHitLinks",
       },
       {
           "B0TrackerCKFTruthSeededTrajectoriesUnfiltered",
@@ -363,7 +352,7 @@ void InitPlugin(JApplication* app) {
           "B0TrackerTruthSeeds",
           "B0TrackerCKFTruthSeededActsTrackStates",
           "B0TrackerCKFTruthSeededActsTracks",
-          "B0TrackerRawHitAssociations",
+          "B0TrackerRawHitLinks",
       },
       {
           "B0TrackerCKFTruthSeededTrajectories",
@@ -393,7 +382,7 @@ void InitPlugin(JApplication* app) {
           "B0TrackerSeeds",
           "B0TrackerCKFActsTrackStatesUnfiltered",
           "B0TrackerCKFActsTracksUnfiltered",
-          "B0TrackerRawHitAssociations",
+          "B0TrackerRawHitLinks",
       },
       {
           "B0TrackerCKFTrajectoriesUnfiltered",
@@ -419,7 +408,7 @@ void InitPlugin(JApplication* app) {
                                                                 "B0TrackerSeeds",
                                                                 "B0TrackerCKFActsTrackStates",
                                                                 "B0TrackerCKFActsTracks",
-                                                                "B0TrackerRawHitAssociations",
+                                                                "B0TrackerRawHitLinks",
                                                             },
                                                             {
                                                                 "B0TrackerCKFTrajectories",

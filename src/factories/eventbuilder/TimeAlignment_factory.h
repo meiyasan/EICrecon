@@ -5,32 +5,42 @@
 //
 // Time-alignment factory, shared by trackers and calorimeter clusters.
 //
-// For each input collection it clones every hit/cluster, subtracts a straight-
-// line propagation term r/c (so all times refer to a common collision t0), and
-// sorts the collection by time. The logic is identical for tracker hits
-// (edm4eic::TrackerHit) and calo clusters (edm4eic::Cluster), so it is written
-// once as a template and instantiated once per family.
+// For each input collection, this clones every hit or cluster, subtracts a
+// straight-line propagation term r/c (so all times refer to a common
+// collision t0), and sorts the collection by time. The logic is identical
+// for tracker hits (edm4eic::TrackerHit) and calo clusters
+// (edm4eic::Cluster), so it is written once as a template and instantiated
+// once per family.
 //
-// This factory is STATELESS by design. JANA2 creates one factory instance per
-// in-flight timeslice (jana:max_inflight_timeslices, default nthreads) and
-// assigns frames to instances arbitrarily, so factory members must never carry
-// information across frames: with nthreads > 1 such state fragments across
-// instances and sees frames out of order.
+// This factory is stateless by design. JANA2 creates one factory instance
+// per in-flight timeslice (jana:max_inflight_timeslices, default nthreads)
+// and assigns frames to instances arbitrarily. Factory members must never
+// carry information across frames: with nthreads > 1, such state would
+// fragment across instances and see frames out of order.
 //
 // Cross-frame boundary recovery (slow detectors only)
 // ---------------------------------------------------
-// Si/MAPS detectors have σ_Si ≈ 2 µs ≈ frame width, so hits near a frame
-// boundary can be reconstructed into a neighbouring frame. For slow detectors
-// (indices >= NFast) this factory deposits each frame's corrected hits into
-// the process-wide TimesliceBuffer_service, keyed by absolute frame number.
-// The EventUnfolder (see eventbuilder.cc) fetches the adjacent frames from
-// that service while gating hits per candidate — window controlled by
-// -Peventbuilder:backward_frames / -Peventbuilder:forward_frames there.
-// The *TimeAlignRecHits output itself always contains the current frame only.
+// Si/MAPS detectors have a resolution of about 2 microseconds, close to
+// the frame width, so hits near a frame boundary can be reconstructed into
+// a neighboring frame. For slow detectors (indices >= NFast), this factory
+// deposits each frame's corrected hits into the process-wide
+// TimesliceBuffer_service, keyed by absolute frame number. EventUnfolder
+// (see eventbuilder.cc) fetches the adjacent frames from that service
+// while gating hits per candidate; the window is controlled there by
+// -Peventbuilder:unfolder:backward_frames and
+// -Peventbuilder:unfolder:forward_frames. The *TimeAlignRecHits output
+// itself always contains only the current frame.
 //
-// Aliases (defined at the bottom of this file). The index order is fixed by
-// the wiring lists in eventbuilder.cc (m_simtrackerhit_collection_names /
-// m_simcalocluster_collection_names) — keep the three in sync.
+// Parameter namespaces: gating and cross-frame recovery are the unfolder's
+// business (eventbuilder:unfolder:*), while what MC truth gets written is
+// its own concern (eventbuilder:truth:*). This factory reads
+// eventbuilder:truth:simhits, which is legitimate under that split -- the
+// switch describes the truth output, not the unfolding, and both this
+// factory and the unfolder act on it.
+//
+// Aliases are defined at the bottom of this file. The index order is fixed
+// by the wiring lists in eventbuilder.cc (m_simtrackerhit_collection_names
+// and m_simcalocluster_collection_names). Keep all three in sync.
 //
 //   TrkTimeAlignment_factory = TimeAlignment_factory<edm4eic::TrackerHit, 6>
 //     Aligns raw HIT times — it runs BEFORE any tracking, on hits from the
@@ -47,14 +57,15 @@
 //         7  SiBarrelTracker        MAPS sagitta barrel            (10 ns sim)
 //         8  SiEndcapTracker        MAPS endcap disks              (10 ns sim)
 //         9  B0Tracker              far-forward B0 spectrometer    (8 ns sim)
-//     Future candidates (commented in the wiring): TaggerTracker (LOW-Q2),
-//     DIRC bars, DRICH — appending keeps existing indices stable; a new SLOW
-//     detector must go at the end AND NFast stays 6 unless it is a genuine
-//     trigger detector.
+//     Future candidates, commented out in the wiring: TaggerTracker (low
+//     Q2), DIRC bars, DRICH. Appending keeps existing indices stable; a new
+//     slow detector must go at the end, and NFast stays 6 unless the new
+//     detector is a genuine trigger detector.
 //
 //   CalTimeAlignment_factory = TimeAlignment_factory<edm4eic::Cluster>
-//     Same r/c correction for calorimeter clusters. 9 collections wired today;
-//     NFast defaults to UINT32_MAX: all clusters are "fast", nothing deposited.
+//     Same r/c correction for calorimeter clusters. 9 collections wired
+//     today. NFast defaults to UINT32_MAX: every cluster is "fast", so
+//     nothing is deposited.
 //         0  B0ECal                 far-forward EM calorimeter
 //         1  EcalBarrel             barrel EM calorimeter
 //         2  EcalEndcapN            electron-side EM calorimeter
@@ -76,9 +87,14 @@
 #include <utility>
 #include <vector>
 
+#include <unordered_map>
+
 #include <extensions/jana/JOmniFactory.h>
 #include <edm4eic/TrackerHitCollection.h>
+#include <edm4eic/RawTrackerHitCollection.h>
 #include <edm4eic/ClusterCollection.h>
+#include <edm4hep/SimTrackerHitCollection.h>
+#include <podio/LinkCollection.h>
 
 #include "services/eventbuilder/TimesliceBuffer_service.h"
 
@@ -97,30 +113,85 @@ struct TimeAlignment_factory
   typename Base::template VariadicPodioInput<HitT, true> m_in{this, {}};
   typename Base::template VariadicPodioOutput<HitT>      m_out{this, {}};
 
+  using SlowLink = podio::Link<edm4eic::RawTrackerHit, edm4hep::SimTrackerHit>;
+
+  // Truth links for the slow detectors, one per slow index (NFast..NFast+3).
+  // Read here, and not in the EventUnfolder, because this is the last point
+  // at which a frame's own link -> SimTrackerHit -> MCParticle chain is
+  // still alive: the unfolder sees adjacent frames only through
+  // TimesliceBuffer_service, long after their collections are gone.
+  //
+  // Four fixed (non-variadic) inputs rather than one variadic input: this
+  // JOmniFactory shim splits the wiring's input-name list evenly across
+  // however many variadic inputs a factory declares, so a second variadic
+  // input would silently take half of m_in's RecHit names. Non-variadic
+  // inputs each consume exactly one trailing name instead, which leaves
+  // m_in's share intact. They are appended to both wiring lists in
+  // eventbuilder.cc; the calo wiring passes empty names, and being optional
+  // they then simply read back as nullptr.
+  static constexpr size_t kNumSlowLink = 4;
+  typename Base::template PodioInput<SlowLink, true> m_slow_link0{this};
+  typename Base::template PodioInput<SlowLink, true> m_slow_link1{this};
+  typename Base::template PodioInput<SlowLink, true> m_slow_link2{this};
+  typename Base::template PodioInput<SlowLink, true> m_slow_link3{this};
+
+  const typename PodioTypeMap<SlowLink>::collection_t* slowLinks(size_t si) {
+    switch (si) {
+    case 0:  return m_slow_link0();
+    case 1:  return m_slow_link1();
+    case 2:  return m_slow_link2();
+    case 3:  return m_slow_link3();
+    default: return nullptr;
+    }
+  }
+
   std::shared_ptr<TimesliceBuffer_service> m_ts_buffer;
 
-  // Per-collection calibration constants [ns], subtracted AFTER the r/c
-  // correction; order follows the wiring lists in eventbuilder.cc, missing
-  // entries = 0. This is the home for the deterministic, particle-INdependent
-  // offsets r/c cannot model — calorimeter shower-depth/light-collection
-  // delays (+2..+5 ns measured for the EM calos), Cherenkov photon paths,
-  // readout offsets. Measure with `make gatecheck` (truth-referenced peak
-  // offsets), then set e.g.:
+  // (collectionID, index) of a raw hit, matching EventUnfolder::rawHitKey.
+  template <typename ObjT>
+  static uint64_t rawHitKey(const ObjT& h) {
+    const auto id = h.getObjectID();
+    return (static_cast<uint64_t>(static_cast<uint32_t>(id.collectionID)) << 32) |
+           static_cast<uint32_t>(id.index);
+  }
+
+  // Per-collection calibration constants, in ns, subtracted after the r/c
+  // correction. Order follows the wiring lists in eventbuilder.cc; missing
+  // entries default to 0. This holds the deterministic, particle-independent
+  // offsets that r/c cannot model: calorimeter shower-depth and
+  // light-collection delays, Cherenkov photon paths, readout offsets.
+  // Measure with `make gatecheck` (truth-referenced peak offsets), then set,
+  // for example:
   //   -PCalTimeAlignment:offsets=3.6,3.6,1.9,3.3,...
   typename Base::template Parameter<std::vector<float>> m_offsets{this, "offsets", {},
       "per-collection time offsets [ns] subtracted after r/c (wiring order; "
       "empty/short = zeros)"};
 
+  // Buffer the full truth chain (sim hit + MCParticle) alongside each slow
+  // hit, so cross-frame-recovered hits can resolve
+  // link -> SimTrackerHit -> MCParticle in the child event. Costs memory in
+  // every retained frame, so it follows the unfolder's own switch rather than
+  // being always on: the weight-encoded label does not need it.
+  bool m_buffer_truth = false;
+
   void Configure() {
-    if constexpr (kDeposits)
+    if constexpr (kDeposits) {
       m_ts_buffer = this->GetApplication()->template GetService<TimesliceBuffer_service>();
+      // Read the unfolder's parameter rather than declaring a second one, so
+      // there is a single switch. Reading an unset parameter throws, so check.
+      auto* pm = this->GetApplication()->GetJParameterManager();
+      if (pm->Exists("eventbuilder:truth:simhits"))
+        m_buffer_truth =
+            this->GetApplication()->template GetParameterValue<bool>("eventbuilder:truth:simhits");
+    }
   }
 
   void ChangeRun(int32_t) {}
 
-  // Apply the r/c propagation correction to a hit and return a mutable clone.
-  // 1/c = 0.0033356 ns/mm. (Was 0.0034 — a 2% error that biased barrel-TOF
-  // times by ~40 ps at r=640 mm, larger than the TOF's own 30 ps sigma.)
+  // Applies the r/c propagation correction to a hit and returns a mutable
+  // clone. 1/c = 0.0033356 ns/mm. This constant must stay precise: a 2%
+  // error here would bias barrel-TOF times by about 40 ps at r=640 mm,
+  // larger than TOF's own 30 ps resolution.
   static constexpr double kInvC_ns_per_mm = 1.0 / 299.792458;
   MutHitT correct(const HitT& hit, double offset_ns) const {
     MutHitT c = hit.clone();
@@ -158,10 +229,94 @@ struct TimeAlignment_factory
       if constexpr (kDeposits) {
         if (i >= nf) {
           // Slow detector: the output gets clones; the originals stay
-          // untracked and go to the cross-frame deposit below.
+          // untracked and go to the cross-frame deposit below, together
+          // with the truth resolved here (see SlowHit's comment for why
+          // the unfolder cannot do this itself).
           for (const auto& h : current)
             out->push_back(h.clone());
-          slow_frame[i - nf] = std::move(current);
+
+          const size_t si = i - nf;
+
+          // raw-hit key -> (generatorStatus, MCParticle time) for this frame.
+          std::unordered_map<uint64_t, std::pair<float, float>> truth;
+          // Optional full chain, deduplicated within this frame: one sim hit
+          // backs several raw hits and one particle backs many sim hits, so
+          // clone each object once and share the handle.
+          struct Chain {
+            edm4hep::MutableSimTrackerHit sim;
+            edm4hep::MutableMCParticle    particle;
+            uint64_t sim_key = 0;
+            uint32_t mcp_key = 0;
+            bool     has_particle = false;
+          };
+          std::unordered_map<uint64_t, Chain>                        chain_by_raw;
+          std::unordered_map<uint64_t, edm4hep::MutableSimTrackerHit> sim_clones;
+          std::unordered_map<uint32_t, edm4hep::MutableMCParticle>    mcp_clones;
+
+          if (const auto* links = slowLinks(si); links != nullptr) {
+            for (const auto& l : *links) {
+              const auto sim = l.getTo();
+              if (!l.getFrom().isAvailable() || !sim.isAvailable() ||
+                  !sim.getParticle().isAvailable())
+                continue;
+              const auto p = sim.getParticle();
+              const uint64_t rk = rawHitKey(l.getFrom());
+              // Secondaries inherit their first labelled ancestor's
+              // (status, time) -- see effectiveProvenance().
+              const auto [est, etime] = effectiveProvenance(p);
+              truth.emplace(rk, std::make_pair(static_cast<float>(est),
+                                               static_cast<float>(etime)));
+              if (!m_buffer_truth)
+                continue;
+              const uint64_t skey = rawHitKey(sim);
+              const uint32_t pkey = static_cast<uint32_t>(p.getObjectID().index);
+              auto sit = sim_clones.find(skey);
+              if (sit == sim_clones.end())
+                // relations dropped: they point into this frame, which the
+                // consumer never sees. The consumer re-links sim -> particle
+                // from the buffered clones instead.
+                sit = sim_clones.emplace(skey, sim.clone(false)).first;
+              auto pit = mcp_clones.find(pkey);
+              if (pit == mcp_clones.end())
+                pit = mcp_clones.emplace(pkey, p.clone(false)).first;
+              chain_by_raw.emplace(rk, Chain{sit->second, pit->second, skey, pkey, true});
+            }
+          }
+
+          std::vector<TimesliceBuffer_service::SlowHit> slow;
+          slow.reserve(current.size());
+          for (auto& h : current) {
+            TimesliceBuffer_service::SlowHit sh;
+            sh.frame = frame_nr;   // part of the dedup key downstream; see SlowHit
+            sh.hit = std::move(h);
+            const auto rh = sh.hit.getRawHit();
+            if (rh.isAvailable()) {
+              // Untracked clone: the producing frame's RawTrackerHit
+              // collection does not outlive this deposit.
+              sh.raw     = rh.clone(false);
+              sh.has_raw = true;
+              const uint64_t rk = rawHitKey(rh);
+              auto it = truth.find(rk);
+              if (it != truth.end()) {
+                sh.status    = it->second.first;
+                sh.ptime     = it->second.second;
+                sh.has_truth = true;
+              }
+              if (m_buffer_truth) {
+                auto cit = chain_by_raw.find(rk);
+                if (cit != chain_by_raw.end()) {
+                  sh.sim          = cit->second.sim;
+                  sh.sim_key      = cit->second.sim_key;
+                  sh.has_sim      = true;
+                  sh.particle     = cit->second.particle;
+                  sh.mcp_key      = cit->second.mcp_key;
+                  sh.has_particle = cit->second.has_particle;
+                }
+              }
+            }
+            slow.push_back(std::move(sh));
+          }
+          slow_frame[si] = std::move(slow);
           continue;
         }
       }

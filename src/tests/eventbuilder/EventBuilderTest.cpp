@@ -4,7 +4,7 @@
 // TimeAlignment_factory, and TimeCoincidence_factory using pure C++ so
 // no JANA / PODIO / ROOT infrastructure is required to run these tests.
 //
-// Physics classes under test (SRO taxonomy):
+// Physics classes under test (streaming-readout taxonomy):
 //   0 BKG          — machine backgrounds only, no signal coincidence
 //   1 DIS_NC       — neutral-current DIS: backward scattered electron
 //   2 DIS_CC       — charged-current DIS: forward hadrons, no electron
@@ -422,7 +422,253 @@ TEST(TimeAlignment, BackwardMerge_RecoversPastHit) {
 }
 
 // ===========================================================================
-// VI. EventPrefilter — ONNX gold-coating GNN model (compiled in when HAS_ONNXRUNTIME)
+// VI. True pile-up: collision-instance separation (EventBuilder_factory's
+//     collision_times/collision_stream dedup + trigger_classes (weights[25+]),
+//     EventUnfolder's coincidentSlot() nearest-match)
+// ===========================================================================
+//
+// These functions replicate, for testing, the dedup loop in
+// EventBuilder_factory.h::Process() (the collision_times/collision_stream
+// block) and the per-candidate match loop that counts coincident collisions
+// (flag/trigger_classes_mask, weights[2]/[17]) and, when
+// store_coincident_list is on (the default), retains the (time, stream)
+// pairs (trigger_classes, weights[25+]). See that file's own comments. This
+// also replicates eventbuilder.cc's coincidentSlot() nearest-match, used to
+// tag kept hits.
+
+namespace {
+
+struct PileupCollision { double time; int stream; };
+
+// Mirrors EventBuilder_factory.h's collision_times/collision_stream loop: dedupe
+// injected collisions by (stream, time), same stream within `dedup` ns
+// merges into one entry, different streams never merge regardless of time.
+std::vector<PileupCollision> dedupPileup(const std::vector<PileupCollision>& raw,
+                                         double dedup) {
+  std::vector<PileupCollision> out;
+  for (const auto& c : raw) {
+    bool merged = false;
+    for (auto& o : out)
+      if (o.stream == c.stream && std::fabs(o.time - c.time) < dedup) {
+        merged = true;
+        break;
+      }
+    if (!merged)
+      out.push_back(c);
+  }
+  return out;
+}
+
+// Mirrors the per-candidate coincident_list loop: every deduped collision
+// within +-dt of t0 is retained as a (time, stream) pair.
+std::vector<PileupCollision> coincidentList(const std::vector<PileupCollision>& deduped,
+                                            double t0, double dt) {
+  std::vector<PileupCollision> list;
+  for (const auto& c : deduped)
+    if (std::fabs(t0 - c.time) <= dt)
+      list.push_back(c);
+  return list;
+}
+
+// Mirrors eventbuilder.cc's coincidentSlot(): nearest-time match against a
+// candidate's own coincident_list, -1 if the list is empty.
+int coincidentSlot(const std::vector<PileupCollision>& list, double t) {
+  if (list.empty())
+    return -1;
+  int best = 0;
+  double best_d = std::fabs(t - list[0].time);
+  for (size_t k = 1; k < list.size(); ++k) {
+    const double d = std::fabs(t - list[k].time);
+    if (d < best_d) { best_d = d; best = int(k); }
+  }
+  return best;
+}
+
+}  // namespace
+
+// Two collisions of the same stream (class), 30 ns apart, with a tight
+// dedup window (10 ns, for example a TOF-dominated frame). 30 ns > 10 ns,
+// so they must not merge: two distinct entries that both count into the
+// candidate's flag and both appear in trigger_classes (weights[25+]).
+TEST(TruePileup, Dedup_SameStreamFarApart_StaysSeparate) {
+  std::vector<PileupCollision> raw = {{1000.0, 10}, {1030.0, 10}};
+  auto deduped = dedupPileup(raw, /*dedup=*/10.0);
+  EXPECT_EQ(deduped.size(), 2u)
+      << "30 ns apart, 10 ns dedup window: same-stream collisions stay distinct";
+}
+
+// The same two collisions, but with a wide dedup window (40 ns) spanning
+// the 30 ns gap: the intended merge behavior at the boundary. This is not
+// a bug; it documents that the dedup granularity itself, not
+// trigger_classes, decides whether two same-stream collisions are
+// resolvable at all.
+TEST(TruePileup, Dedup_SameStreamFarApart_MergesUnderWideWindow) {
+  std::vector<PileupCollision> raw = {{1000.0, 10}, {1030.0, 10}};
+  auto deduped = dedupPileup(raw, /*dedup=*/40.0);
+  EXPECT_EQ(deduped.size(), 1u)
+      << "30 ns apart, 40 ns dedup window: same-stream collisions intentionally merge";
+}
+
+// Different streams never merge regardless of time separation (mirrors the
+// production dedup's explicit stream check) -- two collisions 5 ns apart,
+// well inside even the tight dedup window, from DIFFERENT classes.
+TEST(TruePileup, Dedup_DifferentStreamsNeverMerge) {
+  std::vector<PileupCollision> raw = {{1000.0, 10}, {1005.0, 80}};
+  auto deduped = dedupPileup(raw, /*dedup=*/10.0);
+  EXPECT_EQ(deduped.size(), 2u)
+      << "Different streams must never merge, even well inside the dedup window";
+}
+
+// Round-trip: a candidate's trigger_classes list size matches what flag
+// (the count field, weights[2]) reports for the same match test --
+// weights[25] (the stored list count) and weights[2] must never disagree,
+// since both come from the identical `|t0 - t| <= dt` test.
+TEST(TruePileup, CoincidentList_CountMatchesCoincidenceTest) {
+  std::vector<PileupCollision> raw = {{1000.0, 10}, {1030.0, 80}, {2000.0, 150}};
+  auto deduped = dedupPileup(raw, /*dedup=*/10.0);
+  ASSERT_EQ(deduped.size(), 3u);
+
+  const double t0 = 1015.0, dt = 30.0;  // window covers both close collisions, not the far one
+  auto list = coincidentList(deduped, t0, dt);
+
+  int flag_count = 0;
+  for (const auto& c : deduped)
+    if (std::fabs(t0 - c.time) <= dt)
+      ++flag_count;
+
+  EXPECT_EQ(list.size(), 2u) << "Both close collisions (streams 10, 80) are in-window";
+  EXPECT_EQ(static_cast<int>(list.size()), flag_count)
+      << "weights[25] (list size) must equal weights[2] (flag) by construction";
+}
+
+// Nearest-match slot assignment: hits/particles from each of two close
+// collisions must resolve to the CORRECT distinct slot, not both collapsing
+// onto one -- this is what actually lets per-hit truth separate two
+// overlapping collisions downstream (eventbuilder.cc's coincidentSlot()).
+TEST(TruePileup, CoincidentSlot_AssignsCorrectDistinctSlots) {
+  std::vector<PileupCollision> list = {{1000.0, 10}, {1030.0, 80}};
+
+  EXPECT_EQ(coincidentSlot(list, 1000.2), 0) << "Particle near collision 0 must resolve to slot 0";
+  EXPECT_EQ(coincidentSlot(list, 1029.8), 1) << "Particle near collision 1 must resolve to slot 1";
+  // Exactly at the midpoint, ties go to whichever is scanned first (slot 0)
+  // -- documenting the tie-break, not asserting a "correct" side since none
+  // exists for a genuine tie.
+  EXPECT_EQ(coincidentSlot(list, 1015.0), 0) << "Midpoint tie-break: first-scanned slot wins";
+}
+
+TEST(TruePileup, CoincidentSlot_EmptyListReturnsMinusOne) {
+  EXPECT_EQ(coincidentSlot({}, 1000.0), -1)
+      << "No coincident-list data (parameter off, or nothing coincided): -1, unchanged from "
+         "pre-existing behavior";
+}
+
+// ===========================================================================
+// VI-b. generatorStatus decode (10000-wide class bands, instance sub-bands),
+//       count-based flag semantics, and float32 slot packing
+// ===========================================================================
+//
+// Mirrors the production arithmetic: EventBuilder_factory.h's collision
+// loop (status >= 10000, stream = status/1000, class_index =
+// (stream-10)/10) and eventbuilder.cc's weight = generatorStatus +
+// slot*1e6 packing with its slot < 16 float32-exactness bound.
+
+namespace {
+
+struct StatusDecode {
+  bool physics;
+  int class_index; // 0-25, physics only
+  int instance;    // 1-based same-class pile-up instance, physics only
+  int low;         // status % 1000: 1 = stable, 2 = decay
+};
+
+StatusDecode decodeStatus(int status) {
+  if (status < 10000)
+    return {false, -1, 0, status % 1000};
+  return {true, (status - 10000) / 10000, (status % 10000) / 1000 + 1, status % 1000};
+}
+
+int streamOf(int status) { return status / 1000; }
+int classIndexOfStream(int stream) { return (stream - 10) / 10; }
+
+} // namespace
+
+TEST(StatusDecode, ClassBands) {
+  EXPECT_FALSE(decodeStatus(1).physics) << "Native status 1 is not a physics-class code";
+  EXPECT_FALSE(decodeStatus(2001).physics) << "Machine background (2000-6999) is not physics";
+  EXPECT_TRUE(decodeStatus(10001).physics);
+  EXPECT_EQ(decodeStatus(10001).class_index, 0) << "10000-19999 = class 0 (ncdisq1)";
+  EXPECT_EQ(decodeStatus(260001).class_index, 25) << "260000-269999 = class 25 (photoprod)";
+  EXPECT_EQ(decodeStatus(80001).class_index, 7) << "80000-89999 = class 7 (dvcs)";
+}
+
+TEST(StatusDecode, InstanceSubBands) {
+  EXPECT_EQ(decodeStatus(10001).instance, 1);
+  EXPECT_EQ(decodeStatus(10001).low, 1) << "base+1 = instance 1, stable";
+  EXPECT_EQ(decodeStatus(10002).low, 2) << "base+2 = instance 1, decay";
+  EXPECT_EQ(decodeStatus(11001).instance, 2) << "base+1001 = instance 2, stable";
+  EXPECT_EQ(decodeStatus(11001).class_index, 0) << "Instance shift stays inside the class band";
+  EXPECT_EQ(decodeStatus(12002).instance, 3);
+  EXPECT_EQ(decodeStatus(12002).low, 2) << "base+2002 = instance 3, decay";
+}
+
+// stream -> class_index must hold for EVERY instance sub-band of every
+// class: the trigger_classes_mask bit and the trigger_classes stream
+// decode both rely on this.
+TEST(StatusDecode, StreamToClassIndexForEveryInstance) {
+  for (int cls = 0; cls < 26; ++cls) {
+    const int base = 10000 + cls * 10000;
+    for (int inst = 1; inst <= 10; ++inst) {
+      const int status = base + (inst - 1) * 1000 + 1;
+      EXPECT_EQ(classIndexOfStream(streamOf(status)), cls)
+          << "status " << status << " (class " << cls << ", instance " << inst << ")";
+    }
+  }
+}
+
+// flag counts every in-window collision; mc_t is the EARLIEST one's time —
+// mirrors the factory's per-candidate matching loop.
+TEST(CountFlag, CountsAllAndReportsEarliest) {
+  std::vector<PileupCollision> deduped = {{1030.0, 10}, {1000.0, 80}, {2000.0, 150}};
+  const double t0 = 1015.0, dt = 30.0;
+  int flag = 0;
+  double mc_t = -1.0e9;
+  for (const auto& c : deduped)
+    if (std::fabs(t0 - c.time) <= dt) {
+      ++flag;
+      if (mc_t == -1.0e9 || c.time < mc_t)
+        mc_t = c.time;
+    }
+  EXPECT_EQ(flag, 2) << "Two real collisions in-window: flag = 2 (true pile-up)";
+  EXPECT_NEAR(mc_t, 1000.0, 1e-9) << "mc_t is the earliest matched collision's time";
+}
+
+TEST(CountFlag, ZeroCollisionsMeansFake) {
+  std::vector<PileupCollision> deduped = {{2000.0, 10}};
+  const double t0 = 1000.0, dt = 30.0;
+  int flag = 0;
+  for (const auto& c : deduped)
+    if (std::fabs(t0 - c.time) <= dt)
+      ++flag;
+  EXPECT_EQ(flag, 0) << "No real collision in-window: flag = 0 (fake)";
+}
+
+// weight = generatorStatus + slot*1e6 must round-trip exactly in float32.
+// The exact-integer ceiling of float is 2^24 = 16,777,216: with the max
+// status 269999, slots 0-16 stay exact and slot 17 is the first to break —
+// this bound backs the assert(slot < 16) at both encode sites.
+TEST(SlotPacking, Float32ExactThroughSlot16) {
+  const int max_status = 269999;
+  for (int slot = 0; slot <= 16; ++slot) {
+    const double packed = double(max_status) + double(slot) * 1e6;
+    EXPECT_EQ(double(float(packed)), packed) << "slot " << slot << " must pack exactly";
+  }
+  const double broken = double(max_status) + 17.0 * 1e6;
+  EXPECT_NE(double(float(broken)), broken)
+      << "slot 17 exceeds 2^24 and must NOT be exactly representable — the assert bound is real";
+}
+
+// ===========================================================================
+// VII. EventPrefilter — ONNX gold-coating GNN model (compiled in when HAS_ONNXRUNTIME)
 // ===========================================================================
 //
 // The gold-coating model (MultiClassEventGNN) takes 4 inputs:
@@ -638,7 +884,7 @@ TEST(Prefilter, GoldCoating_SignalScoresHigherThanNoise) {
 #endif  // HAS_ONNXRUNTIME
 
 // ===========================================================================
-// VII. ONNXRuntime_gnn — kNN graph construction (pure C++, no OnnxRuntime)
+// VIII. ONNXRuntime_gnn — kNN graph construction (pure C++, no OnnxRuntime)
 // ===========================================================================
 //
 // Validates the k-d tree kNN against brute force and checks the pyg-lib ≥ 0.6
@@ -792,7 +1038,7 @@ TEST(KnnGraph, ScalesToFrameSize) {
 }
 
 // ===========================================================================
-// VIII. Prefilter decoding heads B (superposition) and C (hit refinement)
+// IX. Prefilter decoding heads B (superposition) and C (hit refinement)
 // ===========================================================================
 //
 // Model output contract (by index; missing outputs = older Head-A-only export):
@@ -800,7 +1046,7 @@ TEST(KnnGraph, ScalesToFrameSize) {
 //   [1] multiplicity [1, 7]  float32  — Head B: per-class Poisson rates λ_k ≥ 0
 //   [2] hit_scores   [N] or [N, 1]    — Head C: per-hit signal probability ∈ [0,1]
 //
-// These tests activate automatically once sro-gnn's export.py includes the
+// These tests activate automatically once the model export includes the
 // heads; until then they SKIP with an actionable message.
 
 #ifdef HAS_ONNXRUNTIME
@@ -892,7 +1138,7 @@ TEST(PrefilterHeads, HeadB_MultiplicityRates) {
   Ort::Session session(env, path, opts);
 
   if (session.GetOutputCount() < 2)
-    GTEST_SKIP() << "Head B not exported yet — re-export sro-gnn with "
+    GTEST_SKIP() << "Head B not exported yet — re-export the model with "
                     "multiplicity_head=true (output[1] = lambda [1,7])";
 
   constexpr int N = 50;

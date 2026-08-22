@@ -134,10 +134,22 @@ void InitPlugin(JApplication* app) {
           .resolutionTDC   = EcalEndcapP_resolutionTDC,
           .timeErrorScale = EcalEndcapP_timeErrorScale,
           .timeErrorOffset = EcalEndcapP_timeErrorOffset,
-          .thresholdFactor = 0.0,
-          .thresholdValue =
-              3, // The ADC of a 15 MeV particle is adc = 200 + 15 * 0.03 * ( 1.0 + 0) / 3000 * 16384 = 200 + 2.4576
-          // 15 MeV = 2.4576, but adc=llround(dE) and cut off is "<". So 3 here = 15.25MeV
+          // thresholdADC = thresholdFactor * pedSigmaADC + thresholdValue (see
+          // CalorimeterHitReco.cc). The flat thresholdValue=3 this replaces sat
+          // at only ~1.2 sigma above EcalEndcapP_pedSigmaADC=2.4576 -- far too
+          // close to the noise floor. A hit whose true energy is below that
+          // floor still crosses threshold on noise alone about as often as
+          // not, and then gets a reconstructed energy set by the noise
+          // fluctuation instead of its own (tiny) deposit: confirmed 2026-08,
+          // res_check.py's EcalEndcapPRecHits ΔE/E showed a median
+          // Ereco/Esim of 5.29x overall, but 29x for the low-true-energy half
+          // of the sample and a sane 1.46x for the high-energy half -- two
+          // different populations, not one calibration offset. EEMC's own
+          // threshold (thresholdValue=4.0, pedSigmaADC=1) is a real 4-sigma
+          // cut; thresholdFactor here matches that same 4-sigma margin
+          // instead of a flat count that assumed EEMC's much smaller sigma.
+          .thresholdFactor = 4.0,
+          .thresholdValue = 0.0,
           .sampFrac = "1.00", // already taken care in DIGI code above
           .readout  = "EcalEndcapPHits",
       },
@@ -294,8 +306,11 @@ void InitPlugin(JApplication* app) {
           .resolutionTDC   = EcalEndcapP_resolutionTDC,
           .timeErrorScale = EcalEndcapP_timeErrorScale,
           .timeErrorOffset = EcalEndcapP_timeErrorOffset,
-          .thresholdFactor = 0.0,
-          .thresholdValue  = 3, // ≈ 15.25 MeV
+          // Same 4-sigma threshold as EcalEndcapPRecHits above -- see that
+          // block's comment for why the flat thresholdValue=3 this replaces
+          // let noise-floor hits through.
+          .thresholdFactor = 4.0,
+          .thresholdValue = 0.0,
           .sampFrac        = "1.00",
           .readout         = "EcalEndcapPHits",
       },

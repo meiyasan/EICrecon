@@ -63,8 +63,8 @@ namespace {
 void ActsToTracks::init() {}
 
 void ActsToTracks::process(const Input& input, const Output& output) const {
-  const auto [meas2Ds, track_seeds, acts_track_states, acts_tracks, raw_hit_assocs] = input;
-  auto [trajectories, track_parameters, tracks, tracks_links, tracks_assoc]         = output;
+  const auto [meas2Ds, track_seeds, acts_track_states, acts_tracks, raw_hit_links] = input;
+  auto [trajectories, track_parameters, tracks, tracks_links, tracks_assoc]        = output;
 
   // Create accessor for seed number dynamic column
   Acts::ConstProxyAccessor<unsigned int> seedNumber("seed");
@@ -232,28 +232,29 @@ void ActsToTracks::process(const Input& input, const Output& output) const {
             debug("Measurement on geo id={}, index={}, loc={},{}", geoID, srclink_index,
                   meas2D.getLoc().a, meas2D.getLoc().b);
 
-            // Determine track associations if hit associations provided
-            // FIXME: not able to check whether optional inputs were provided
-            //if (raw_hit_assocs->has_value()) {
+            // Determine track associations from the raw-hit truth links.
+            // A link's `to` (SimTrackerHit) may be deliberately unset: the
+            // streaming eventbuilder clears it when the hit's particle is
+            // not part of the child event, so truth matching can never
+            // resolve to a particle outside this event's MCParticles.
             for (const auto& hit : meas2D.getHits()) {
               auto raw_hit = hit.getRawHit();
-              for (const auto raw_hit_assoc : *raw_hit_assocs) {
-                if (raw_hit_assoc.getRawHit() == raw_hit) {
-                  auto sim_hit     = raw_hit_assoc.getSimHit();
-                  auto mc_particle = sim_hit.getParticle();
-                  mcparticle_weight_by_hit_count[mc_particle]++;
+              for (const auto raw_hit_link : *raw_hit_links) {
+                if (raw_hit_link.getFrom() == raw_hit) {
+                  auto sim_hit = raw_hit_link.getTo();
+                  if (!sim_hit.isAvailable() || !sim_hit.getParticle().isAvailable()) {
+                    continue;
+                  }
+                  mcparticle_weight_by_hit_count[sim_hit.getParticle()]++;
                 }
               }
             }
-            //}
           }
         }
       }
     }
 
-    // Store track associations if hit associations provided
-    // FIXME: not able to check whether optional inputs were provided
-    //if (raw_hit_assocs->has_value()) {
+    // Store track associations accumulated from the raw-hit links above
     double total_weight = std::accumulate(
         mcparticle_weight_by_hit_count.begin(), mcparticle_weight_by_hit_count.end(), 0,
         [](const double sum, const auto& i) { return sum + i.second; });

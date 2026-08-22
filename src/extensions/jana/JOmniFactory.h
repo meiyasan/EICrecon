@@ -79,7 +79,10 @@ public:
 
   template <typename PodioT, bool IsOptional = false> class PodioInput : public InputBase {
 
-    const typename PodioTypeMap<PodioT>::collection_t* m_data;
+    // Initialized, and reset on every failed fetch below: an optional input
+    // whose collection is absent must read back as nullptr, not as a stale
+    // or uninitialized pointer.
+    const typename PodioTypeMap<PodioT>::collection_t* m_data = nullptr;
 
   public:
     PodioInput(JOmniFactory* owner, std::string default_collection_name = "") {
@@ -94,6 +97,7 @@ public:
     friend class JOmniFactory;
 
     void GetCollection(const JEvent& event) {
+      m_data = nullptr;
       try {
         m_data = event.GetCollection<PodioT>(this->collection_names[0], !IsOptional);
       } catch (const JException& e) {

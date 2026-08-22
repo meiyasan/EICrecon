@@ -1674,6 +1674,10 @@ jobs:
     uses: eic/actions/.github/workflows/list-open-prs.yml@main
 
   get-docs-from-open-prs:
+    # Upstream only: on a fork with zero open PRs the list-open-prs matrix is
+    # empty, and an empty fromJSON matrix fails the whole run at the workflow
+    # level with no failed job shown.
+    if: github.repository == 'eic/EICrecon'
     runs-on: ubuntu-slim
     needs:
       - build-docs
@@ -1782,6 +1786,8 @@ jobs:
           if-no-files-found: error
 
   collect-docs:
+    # Upstream only (see get-docs-from-open-prs; also requires GitHub Pages).
+    if: github.repository == 'eic/EICrecon'
     runs-on: ubuntu-24.04
     needs:
       - get-docs-from-main
@@ -1834,6 +1840,9 @@ jobs:
           path: capybara_${{ github.event.pull_request.number }}.md
 
   deploy-docs:
+    # Upstream only: deploys to eicrecon.epic-eic.org GitHub Pages, which is
+    # not enabled on forks.
+    if: github.repository == 'eic/EICrecon'
     needs:
       - collect-docs
     permissions:

@@ -22,8 +22,12 @@ void MC2ReconstructedParticle::process(const MC2ReconstructedParticle::Input& in
 
   for (const auto& mc_particle : *mc_particles) {
 
-    if (mc_particle.getGeneratorStatus() != 1) {
-      debug("ignoring particle with generatorStatus = {}", mc_particle.getGeneratorStatus());
+    // Stable = native status 1, or the stable sub-code of a banded status
+    // from the streaming eventbuilder scheme (band_base + 1; see
+    // eventbuilder.cc for the band layout).
+    const auto genStatus = mc_particle.getGeneratorStatus();
+    if (genStatus != 1 && !(genStatus >= 2000 && genStatus % 1000 == 1)) {
+      debug("ignoring particle with generatorStatus = {}", genStatus);
       continue;
     }
 

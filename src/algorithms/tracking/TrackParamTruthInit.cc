@@ -39,11 +39,17 @@ void TrackParamTruthInit::process(const Input& input, const Output& output) cons
   // Loop over input particles
   for (const auto& mcparticle : *mcparticles) {
 
-    // accept generator-stable particles (HepMC3/DDSim gun) or Geant4-produced
-    // secondaries; reject generator intermediates (partons, resonances, beams)
-    if (!(mcparticle.getGeneratorStatus() == 1 || mcparticle.getSimulatorStatus() != 0)) {
-      trace("ignoring particle with generatorStatus = {}, simulatorStatus = {}",
-            mcparticle.getGeneratorStatus(), mcparticle.getSimulatorStatus());
+    // accept generator-stable particles or Geant4-produced secondaries; reject
+    // generator intermediates (partons, resonances, beams). "Stable" is native
+    // status 1 (HepMC3 / DDSim gun) or the stable sub-code of a banded status
+    // from the streaming eventbuilder scheme (1000-wide provenance bands from
+    // 2000 up, where band_base + 1 is that band's "stable" code — see
+    // eventbuilder.cc).
+    const auto genStatus       = mcparticle.getGeneratorStatus();
+    const bool stableGenerated = genStatus == 1 || (genStatus >= 2000 && genStatus % 1000 == 1);
+    if (!(stableGenerated || mcparticle.getSimulatorStatus() != 0)) {
+      trace("ignoring particle with generatorStatus = {}, simulatorStatus = {}", genStatus,
+            mcparticle.getSimulatorStatus());
       continue;
     }
 

@@ -38,12 +38,13 @@ public:
                     const float* metric_weights = nullptr,
                     int stride = 0) const;
 
-    // Build the 3 edge sets required by a 3-layer DGCNN GNN:
+    // Build the 4 edge sets required by a 4-layer DGCNN GNN:
     //   [0]: kNN in 4D spacetime (x,y,z,t) with optional time_weight on dim 3
     //   [1]: same spatial graph (approximation; exact would need layer-0 activations)
     //   [2]: same spatial graph (approximation; exact would need layer-1 activations)
+    //   [3]: same spatial graph (approximation; exact would need layer-2 activations)
     // x is a row-major [N, n_features] matrix; the first 4 columns must be (x,y,z,t).
-    std::array<EdgeIndex, 3> build_dgcnn_edges(
+    std::array<EdgeIndex, 4> build_dgcnn_edges(
         const float* x, int N, int k = 16, float time_weight = 1.0f,
         int n_features = 6) const;
 };

@@ -44,21 +44,25 @@ else()
 endif()
 
 # ── test-events ────────────────────────────────────────────────────────────────
-# Run eicrecon+eventbuilder on 1 edm4hep event per SRO class.
+# Run eicrecon+eventbuilder on 1 edm4hep event per physics class.
 # Writes <class>.eicrecon.root to vendor/eicrecon/share/samples/gold-new/.
 #
 # Usage inside the container:
 #   make test-events
 #
-# The target searches vendor/sro/datasets/edm4hep/{vanilla,gold-new,gold-old}/<class>/
-# for input files and skips any class for which no edm4hep input is present.
-# Run `make dataset DATASET=vanilla` in vendor/sro first to populate inputs.
+# The target searches EB_EDM4HEP_ROOT/{vanilla,gold-new,gold-old}/<class>/ for
+# input files and skips any class for which no edm4hep input is present.
+# Point EB_EDM4HEP_ROOT (-DEB_EDM4HEP_ROOT=...) at your production edm4hep
+# datasets root; populate it with your dataset-generation pipeline first.
 #
 # Override the eicrecon executable:
 #   cmake --build . --target test-events -- EICRECON_BIN=/path/to/eicrecon
 
 set(_EB_SAMPLES_DIR "${CMAKE_SOURCE_DIR}/vendor/eicrecon/share/samples/gold-new")
-set(_EB_EDM4HEP_ROOT "${CMAKE_SOURCE_DIR}/vendor/sro/datasets/edm4hep")
+if(NOT DEFINED EB_EDM4HEP_ROOT OR EB_EDM4HEP_ROOT STREQUAL "")
+  set(EB_EDM4HEP_ROOT "$ENV{EB_EDM4HEP_ROOT}")
+endif()
+set(_EB_EDM4HEP_ROOT "${EB_EDM4HEP_ROOT}")
 set(_EB_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/scripts/test_events.sh")
 
 if(NOT DEFINED EICRECON_BIN OR EICRECON_BIN STREQUAL "")
@@ -76,6 +80,6 @@ add_custom_target(test-events
                "${_EB_EDM4HEP_ROOT}"
                "${EICRECON_BIN}"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-  COMMENT "Running eicrecon+eventbuilder on 1 event per SRO class → share/samples/gold-new/"
+  COMMENT "Running eicrecon+eventbuilder on 1 event per physics class → share/samples/gold-new/"
   VERBATIM
 )

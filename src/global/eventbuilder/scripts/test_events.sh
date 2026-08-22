@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_events.sh — run eicrecon+eventbuilder on 1 edm4hep event per SRO class
+# test_events.sh — run eicrecon+eventbuilder on 1 edm4hep event per physics class
 # and write the outputs to the samples directory.
 #
 # Usage (called by `make test-events`):
@@ -7,7 +7,7 @@
 #
 # Arguments
 #   samples_dir   — output directory, e.g. .../share/samples/gold-new
-#   edm4hep_root  — root of edm4hep datasets, e.g. .../vendor/sro/datasets/edm4hep
+#   edm4hep_root  — root of your production edm4hep datasets
 #   eicrecon_bin  — path to the eicrecon executable (default: find in PATH)
 #
 # Environment
