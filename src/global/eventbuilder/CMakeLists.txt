@@ -17,14 +17,6 @@ else()
   # headers to the correct installation directory
   plugin_glob_all(${PLUGIN_NAME})
 
-  # plugin_glob_all only globs this directory; pull in the per-detector
-  # digitization registration files that live in the digi/ subdirectory.
-  file(GLOB DIGITS_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/plugins/*.cc)
-  target_sources(${PLUGIN_NAME}_plugin PRIVATE ${DIGITS_SRC})
-  if(TARGET ${PLUGIN_NAME}_library)
-    target_sources(${PLUGIN_NAME}_library PRIVATE ${DIGITS_SRC})
-  endif()
-
   # Find dependencies plugin_add_dd4hep(${PLUGIN_NAME}#)
   # plugin_add_acts(${PLUGIN_NAME}) plugin_add_cern_root(${PLUGIN_NAME})
   plugin_add_event_model(${PLUGIN_NAME})

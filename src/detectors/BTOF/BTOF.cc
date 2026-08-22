@@ -82,7 +82,13 @@ void InitPlugin(JApplication* app) {
   app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
       "TOFBarrelSharedRecHits", {"TOFBarrelSharedRawHits"}, // Input data collection tags
       {"TOFBarrelSharedRecHits"},                           // Output data tag
-      {},
+      {
+          // AC-LGAD: encode the REAL ~25 ps resolution — the config default
+          // (10 ns) propagates via LGADHitClustering into the Measurement2D
+          // covariance and makes ACTS/the eventbuilder treat TOF as
+          // MPGD-class timing (found by `make rescheck`, 2026-07).
+          .timeResolution = 0.025, // [ns]
+      },
       app)); // Hit reco default config for factories
 
   // calculation of the extreme values for Landau distribution can be found on lin 514-520 of
@@ -126,5 +132,111 @@ void InitPlugin(JApplication* app) {
 
   app->Add(new JOmniFactoryGeneratorT<CFDROCDigitization_factory>(
       "CFDROCDigitization", {"TOFBarrelPulses"}, {"TOFBarrelADCTDC"}, {}, app));
+
+  // Timeslice-level mirror of the chain above for eventbuilder ("Frame"
+  // suffix marks the frame-level variant, avoiding collision with the
+  // PhysicsEvent-level names above). Keep in sync with the chain above.
+  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+      "TOFBarrelRawHitFrame", {"EventHeader", "TOFBarrelHits"},
+      {"TOFBarrelRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "TOFBarrelRawHitLinkFrame",
+#endif
+       "TOFBarrelRawHitAssociationFrame"},
+      {
+          .threshold      = 6.0 * dd4hep::keV,
+          .timeResolution = 0.025, // [ns]
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "TOFBarrelRecHitFrame", {"TOFBarrelRawHitFrame"},
+      {"TOFBarrelRecHitFrame"},
+      {
+          .timeResolution = 0.025, // [ns] -- match the raw-digi stage above
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<LGADHitCalibration_factory>(
+      "TOFBarrelCalibratedHitFrame", {"TOFBarrelADCTDCFrame"},
+      {"TOFBarrelCalibratedHitFrame"},
+      {},
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // Frame-level mirror of the event-level "bypass" ClusterHits chain
+  // (ChargeSharing -> Digi -> HitReco -> LGADHitClustering) — the event-level
+  // TOFBarrelClusterHits comes from TOFBarrelSharedRecHits, so the frame
+  // mirror must too (the pulse-chain mirror below is kept for pulse-shape
+  // studies but is not the measurement input).
+  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+      "TOFBarrelSharedRawHitFrame", {"EventHeader", "TOFBarrelSharedHitFrame"},
+      {"TOFBarrelSharedRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "TOFBarrelSharedRawHitLinkFrame",
+#endif
+       "TOFBarrelSharedRawHitAssociationFrame"},
+      {
+          .threshold      = 0.0,
+          .timeResolution = 0.025, // [ns]
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "TOFBarrelSharedRecHitFrame", {"TOFBarrelSharedRawHitFrame"},
+      {"TOFBarrelSharedRecHitFrame"},
+      {
+          .timeResolution = 0.025, // [ns] — keep in sync with the event level
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<LGADHitClustering_factory>(
+      "TOFBarrelClusterHitFrame", {"TOFBarrelSharedRecHitFrame"},
+      {"TOFBarrelClusterHitFrame"},
+      {
+          .readout = "TOFBarrelHits",
+          .useAve  = true,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<SiliconChargeSharing_factory>(
+      "TOFBarrelSharedHitFrame", {"TOFBarrelHits"}, {"TOFBarrelSharedHitFrame"},
+      {
+          .sigma_mode     = SiliconChargeSharingConfig::ESigmaMode::rel,
+          .sigma_sharingx = 0.5,
+          .sigma_sharingy = 0.5,
+          .min_edep       = 6.0 * edm4eic::unit::keV,
+          .readout        = "TOFBarrelHits",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimTrackerHit>>(
+      "LGADPulseGenerationFrame", {"TOFBarrelSharedHitFrame"}, {"TOFBarrelSmoothPulseFrame"},
+      {
+          .pulse_shape_function = "LandauPulse",
+          .pulse_shape_params   = {gain, sigma_analog, offset},
+          .ignore_thres         = 0.05 * adc_range,
+          .timestep             = 0.01 * edm4eic::unit::ns,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<PulseCombiner_factory>(
+      "TOFBarrelPulseCombinerFrame", {"TOFBarrelSmoothPulseFrame"}, {"TOFBarrelCombinedPulseFrame"},
+      {
+          .minimum_separation = 25 * edm4eic::unit::ns,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<SiliconPulseDiscretization_factory>(
+      "TOFBarrelPulseFrame", {"TOFBarrelCombinedPulseFrame"}, {"TOFBarrelPulseFrame"},
+      {
+          .EICROC_period = 25 * edm4eic::unit::ns,
+          .local_period  = 25 * edm4eic::unit::ns / 1024,
+          .global_offset = -offset * sigma_analog + risetime,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<CFDROCDigitization_factory>(
+      "CFDROCDigitizationFrame", {"TOFBarrelPulseFrame"}, {"TOFBarrelADCTDCFrame"}, {},
+      app))->SetLevel(JEventLevel::Timeslice));
 }
 } // extern "C"

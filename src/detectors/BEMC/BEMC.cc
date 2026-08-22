@@ -96,6 +96,12 @@ void InitPlugin(JApplication* app) {
   decltype(CalorimeterHitDigiConfig::pedSigmaADC) EcalBarrelScFi_pedSigmaADC = 1;
   decltype(CalorimeterHitDigiConfig::resolutionTDC) EcalBarrelScFi_resolutionTDC =
       10 * dd4hep::picosecond;
+  // Hit timing resolution sigma_t(E) = sqrt((a/sqrt(E[GeV]))^2 + b^2), fit from
+  // truth-matched RecHit residuals across ~430k hits spanning several physics
+  // classes + vacuum background (2026-07); b is this detector's TDC-quantization
+  // floor (resolutionTDC/sqrt(12)), not necessarily the full constant term.
+  decltype(CalorimeterHitRecoConfig::timeErrorScale) EcalBarrelScFi_timeErrorScale = 0.0151;
+  decltype(CalorimeterHitRecoConfig::timeErrorOffset) EcalBarrelScFi_timeErrorOffset = 0.0029;
   app->Add(new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
       "EcalBarrelScFiPAttenuatedHits", {"EcalBarrelScFiHits"},
       {"EcalBarrelScFiPAttenuatedHits", "EcalBarrelScFiPAttenuatedHitContributions"},
@@ -260,6 +266,8 @@ void InitPlugin(JApplication* app) {
           .pedMeanADC      = EcalBarrelScFi_pedMeanADC,
           .pedSigmaADC     = EcalBarrelScFi_pedSigmaADC, // not needed; use only thresholdValue
           .resolutionTDC   = EcalBarrelScFi_resolutionTDC,
+          .timeErrorScale = EcalBarrelScFi_timeErrorScale,
+          .timeErrorOffset = EcalBarrelScFi_timeErrorOffset,
           .thresholdFactor = 0.0, // use only thresholdValue
           .thresholdValue  = 5.0, // 16384 ADC counts/1500 MeV * 0.5 MeV (desired threshold) = 5.46
           .sampFrac        = "0.09285755",
@@ -366,6 +374,11 @@ void InitPlugin(JApplication* app) {
       5; // Upper limit for sigma for AstroPix
   decltype(CalorimeterHitDigiConfig::resolutionTDC) EcalBarrelImaging_resolutionTDC =
       3.25 * dd4hep::nanosecond;
+  // See EcalBarrelScFi_timeErrorScale/timeErrorOffset above for the fit methodology; this
+  // detector's coarser 3.25 ns TDC makes its quantization-floor b physically
+  // substantial rather than negligible (2026-07 measurement).
+  decltype(CalorimeterHitRecoConfig::timeErrorScale) EcalBarrelImaging_timeErrorScale = 0.5941;
+  decltype(CalorimeterHitRecoConfig::timeErrorOffset) EcalBarrelImaging_timeErrorOffset = 0.9382;
   app->Add(new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
       "EcalBarrelImagingProcessedHits", {"EcalBarrelImagingHits"},
       {"EcalBarrelImagingProcessedHits", "EcalBarrelImagingProcessedHitContributions"},
@@ -400,6 +413,8 @@ void InitPlugin(JApplication* app) {
           .pedMeanADC      = EcalBarrelImaging_pedMeanADC,
           .pedSigmaADC     = EcalBarrelImaging_pedSigmaADC, // not needed; use only thresholdValue
           .resolutionTDC   = EcalBarrelImaging_resolutionTDC,
+          .timeErrorScale = EcalBarrelImaging_timeErrorScale,
+          .timeErrorOffset = EcalBarrelImaging_timeErrorOffset,
           .thresholdFactor = 0.0, // use only thresholdValue
           .thresholdValue  = 41,  // 8192 ADC counts/3 MeV * 0.015 MeV (desired threshold) = 41
           .sampFrac        = "0.00429453",
@@ -477,5 +492,326 @@ void InitPlugin(JApplication* app) {
       {"EcalBarrelTruthClusters", "EcalBarrelTruthClusterLinks",
        "EcalBarrelTruthClusterAssociations"},
       {.longitudinalShowerInfoAvailable = true, .energyWeight = "log", .logWeightBase = 6.2}, app));
+
+  // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
+  // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep
+  // in sync with the chain above.
+  app->Add((new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
+      "EcalBarrelScFiPAttenuatedHitFrame", {"EcalBarrelScFiHits"},
+      {"EcalBarrelScFiPAttenuatedHitFrame", "EcalBarrelScFiPAttenuatedHitContributionFrame"},
+      {
+          .attenuationParameters            = EcalBarrelScFi_attPars,
+          .readout                          = "EcalBarrelScFiHits",
+          .attenuationReferencePositionName = "EcalBarrel_LightGuide_PositivePosZ",
+          .hitMergeFields                   = EcalBarrelScFi_hitMergeFields,
+          .contributionMergeFields          = EcalBarrelScFi_contributionMergeFields,
+          .inversePropagationSpeed          = EcalBarrelScFi_inversePropagationSpeed,
+          .fixedTimeDelay                   = EcalBarrelScFi_fixedTimeDelay,
+          .timeWindow                       = EcalBarrelScFi_timeWindow,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
+      "EcalBarrelScFiNAttenuatedHitFrame", {"EcalBarrelScFiHits"},
+      {"EcalBarrelScFiNAttenuatedHitFrame", "EcalBarrelScFiNAttenuatedHitContributionFrame"},
+      {
+          .attenuationParameters            = EcalBarrelScFi_attPars,
+          .readout                          = "EcalBarrelScFiHits",
+          .attenuationReferencePositionName = "EcalBarrel_LightGuide_NegativePosZ",
+          .hitMergeFields                   = EcalBarrelScFi_hitMergeFields,
+          .contributionMergeFields          = EcalBarrelScFi_contributionMergeFields,
+          .inversePropagationSpeed          = EcalBarrelScFi_inversePropagationSpeed,
+          .fixedTimeDelay                   = EcalBarrelScFi_fixedTimeDelay,
+          .timeWindow                       = EcalBarrelScFi_timeWindow,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimCalorimeterHit>>(
+      "EcalBarrelScFiPPulseFrame", {"EcalBarrelScFiPAttenuatedHitFrame"}, {"EcalBarrelScFiPPulseFrame"},
+      {
+          .pulse_shape_function = EcalBarrelScFi_pulse_shape_function,
+          .pulse_shape_params   = EcalBarrelScFi_pulse_shape_params,
+          .ignore_thres         = EcalBarrelScFi_ignore_thres,
+          .timestep             = EcalBarrelScFi_timestep,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<PulseGeneration_factory<edm4hep::SimCalorimeterHit>>(
+      "EcalBarrelScFiNPulseFrame", {"EcalBarrelScFiNAttenuatedHitFrame"}, {"EcalBarrelScFiNPulseFrame"},
+      {
+          .pulse_shape_function = EcalBarrelScFi_pulse_shape_function,
+          .pulse_shape_params   = EcalBarrelScFi_pulse_shape_params,
+          .ignore_thres         = EcalBarrelScFi_ignore_thres,
+          .timestep             = EcalBarrelScFi_timestep,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<PulseCombiner_factory>(
+      "EcalBarrelScFiPCombinedPulseFrame", {"EcalBarrelScFiPPulseFrame"}, {"EcalBarrelScFiPCombinedPulseFrame"},
+      {
+          .minimum_separation = EcalBarrelScFi_minimum_separation,
+          .readout            = "EcalBarrelScFiHits",
+          .combine_field      = EcalBarrelScFi_combine_field,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<PulseCombiner_factory>(
+      "EcalBarrelScFiNCombinedPulseFrame", {"EcalBarrelScFiNPulseFrame"}, {"EcalBarrelScFiNCombinedPulseFrame"},
+      {
+          .minimum_separation = EcalBarrelScFi_minimum_separation,
+          .readout            = "EcalBarrelScFiHits",
+          .combine_field      = EcalBarrelScFi_combine_field,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<PulseNoise_factory>(
+      "EcalBarrelScFiPCombinedPulsesWithNoiseFrame", {"EventHeader", "EcalBarrelScFiPCombinedPulseFrame"},
+      {"EcalBarrelScFiPCombinedPulsesWithNoiseFrame"},
+      {
+          .poles    = EcalBarrelScFi_poles,
+          .variance = EcalBarrelScFi_variance,
+          .alpha    = EcalBarrelScFi_alpha,
+          .scale    = EcalBarrelScFi_scale,
+          .pedestal = EcalBarrelScFi_pedestal,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<PulseNoise_factory>(
+      "EcalBarrelScFiNCombinedPulsesWithNoiseFrame", {"EventHeader", "EcalBarrelScFiNCombinedPulseFrame"},
+      {"EcalBarrelScFiNCombinedPulsesWithNoiseFrame"},
+      {
+          .poles    = EcalBarrelScFi_poles,
+          .variance = EcalBarrelScFi_variance,
+          .alpha    = EcalBarrelScFi_alpha,
+          .scale    = EcalBarrelScFi_scale,
+          .pedestal = EcalBarrelScFi_pedestal,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+#if EDM4EIC_VERSION_MAJOR > 8 || (EDM4EIC_VERSION_MAJOR == 8 && EDM4EIC_VERSION_MINOR >= 7)
+  app->Add((new JOmniFactoryGeneratorT<CALOROCDigitization_factory>(
+      "EcalBarrelScFiPCALOROCHitFrame", {"EcalBarrelScFiPCombinedPulsesWithNoiseFrame"},
+      {"EcalBarrelScFiPCALOROCHitFrame"},
+      {
+          .adc_phase            = EcalBarrelScFi_adc_phase,
+          .toa_thres            = EcalBarrelScFi_toa_thres,
+          .tot_thres            = EcalBarrelScFi_tot_thres,
+          .dyRangeSingleGainADC = EcalBarrelScFi_dyRangeSingleGainADC,
+          .dyRangeHighGainADC   = EcalBarrelScFi_dyRangeHighGainADC,
+          .dyRangeLowGainADC    = EcalBarrelScFi_dyRangeLowGainADC,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CALOROCDigitization_factory>(
+      "EcalBarrelScFiNCALOROCHitFrame", {"EcalBarrelScFiNCombinedPulsesWithNoiseFrame"},
+      {"EcalBarrelScFiNCALOROCHitFrame"},
+      {
+          .adc_phase            = EcalBarrelScFi_adc_phase,
+          .toa_thres            = EcalBarrelScFi_toa_thres,
+          .tot_thres            = EcalBarrelScFi_tot_thres,
+          .dyRangeSingleGainADC = EcalBarrelScFi_dyRangeSingleGainADC,
+          .dyRangeHighGainADC   = EcalBarrelScFi_dyRangeHighGainADC,
+          .dyRangeLowGainADC    = EcalBarrelScFi_dyRangeLowGainADC,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+#endif
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "EcalBarrelScFiRawHitFrame", {"EventHeader", "EcalBarrelScFiHits"},
+      {"EcalBarrelScFiRawHitFrame",
+       "EcalBarrelScFiRawHitLinkFrame",
+       "EcalBarrelScFiRawHitAssociationFrame"},
+      {
+          .eRes          = {0.0 * sqrt(dd4hep::GeV), 0.0, 0.0 * dd4hep::GeV},
+          .tRes          = 0.0 * dd4hep::ns,
+          .threshold     = 0.0 * dd4hep::keV, // threshold is set in ADC in reco
+          .capADC        = EcalBarrelScFi_capADC,
+          .dyRangeADC    = EcalBarrelScFi_dyRangeADC,
+          .pedMeanADC    = EcalBarrelScFi_pedMeanADC,
+          .pedSigmaADC   = EcalBarrelScFi_pedSigmaADC,
+          .resolutionTDC = EcalBarrelScFi_resolutionTDC,
+          .corrMeanScale = "1.0",
+          .readout       = "EcalBarrelScFiHits",
+          .fields        = {"fiber", "z"},
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "EcalBarrelScFiRecHitFrame", {"EcalBarrelScFiRawHitFrame"}, {"EcalBarrelScFiRecHitFrame"},
+      {
+          .capADC          = EcalBarrelScFi_capADC,
+          .dyRangeADC      = EcalBarrelScFi_dyRangeADC,
+          .pedMeanADC      = EcalBarrelScFi_pedMeanADC,
+          .pedSigmaADC     = EcalBarrelScFi_pedSigmaADC, // not needed; use only thresholdValue
+          .resolutionTDC   = EcalBarrelScFi_resolutionTDC,
+          .timeErrorScale = EcalBarrelScFi_timeErrorScale,
+          .timeErrorOffset = EcalBarrelScFi_timeErrorOffset,
+          .thresholdFactor = 0.0, // use only thresholdValue
+          .thresholdValue  = 5.0, // 16384 ADC counts/1500 MeV * 0.5 MeV (desired threshold) = 5.46
+          .sampFrac        = "0.09285755",
+          .readout         = "EcalBarrelScFiHits",
+          .layerField      = "layer",
+          .sectorField     = "sector",
+          .localDetFields  = {"system", "sector"},
+          // here we want to use grid center position (XY) but keeps the z information from fiber-segment
+          // TODO: a more realistic way to get z is to reconstruct it from timing
+          .maskPos       = "xy",
+          .maskPosFields = {"fiber", "z"},
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+      "EcalBarrelScFiProtoClusterFrame", {"EcalBarrelScFiRecHitFrame"}, {"EcalBarrelScFiProtoClusterFrame"},
+      {
+          .adjacencyMatrix{},
+          .peakNeighbourhoodMatrix{},
+          .readout{},
+          .sectorDist = 50. * dd4hep::mm,
+          .localDistXY{},
+          .localDistXZ = {80 * dd4hep::mm, 80 * dd4hep::mm},
+          .localDistYZ{},
+          .globalDistRPhi{},
+          .globalDistEtaPhi{},
+          .dimScaledLocalDistXY{},
+          .splitCluster         = false,
+          .minClusterHitEdep    = 5.0 * dd4hep::MeV,
+          .minClusterCenterEdep = 100.0 * dd4hep::MeV,
+          .transverseEnergyProfileMetric{},
+          .transverseEnergyProfileScale{},
+          .transverseEnergyProfileScaleUnits{},
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "EcalBarrelScFiClustersWithoutShapeFrame",
+      {
+          "EcalBarrelScFiProtoClusterFrame", // edm4eic::ProtoClusterCollection
+          "EcalBarrelScFiRawHitLinkFrame", // edm4eic::MCRecoCalorimeterHitLink
+          "EcalBarrelScFiRawHitAssociationFrame" // edm4eic::MCRecoCalorimeterHitAssociation
+      },
+      {"EcalBarrelScFiClustersWithoutShapeFrame", // edm4eic::Cluster
+       "EcalBarrelScFiClusterLinksWithoutShapeFrame",
+       "EcalBarrelScFiClusterAssociationsWithoutShapeFrame"}, // edm4eic::MCRecoClusterParticleAssociation
+      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "EcalBarrelScFiClusterFrame",
+      {"EcalBarrelScFiClustersWithoutShapeFrame", "EcalBarrelScFiClusterAssociationsWithoutShapeFrame"},
+      {"EcalBarrelScFiClusterFrame",
+       "EcalBarrelScFiClusterLinkFrame",
+       "EcalBarrelScFiClusterAssociationFrame"},
+      {.longitudinalShowerInfoAvailable = true, .energyWeight = "log", .logWeightBase = 6.2},
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<SimCalorimeterHitProcessor_factory>(
+      "EcalBarrelImagingProcessedHitFrame", {"EcalBarrelImagingHits"},
+      {"EcalBarrelImagingProcessedHitFrame", "EcalBarrelImagingProcessedHitContributionFrame"},
+      {
+          .readout    = "EcalBarrelImagingHits",
+          .timeWindow = EcalBarrelImaging_timeWindow,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "EcalBarrelImagingRawHitFrame", {"EventHeader", "EcalBarrelImagingProcessedHitFrame"},
+      {"EcalBarrelImagingRawHitFrame",
+       "EcalBarrelImagingRawHitLinkFrame",
+       "EcalBarrelImagingRawHitAssociationFrame"},
+      {
+          .eRes          = {0.0 * sqrt(dd4hep::GeV), 0.02, 0.0 * dd4hep::GeV},
+          .tRes          = 0.0 * dd4hep::ns,
+          .capADC        = EcalBarrelImaging_capADC,
+          .dyRangeADC    = EcalBarrelImaging_dyRangeADC,
+          .pedMeanADC    = EcalBarrelImaging_pedMeanADC,
+          .pedSigmaADC   = EcalBarrelImaging_pedSigmaADC,
+          .resolutionTDC = EcalBarrelImaging_resolutionTDC,
+          .corrMeanScale = "1.0",
+          .readout       = "EcalBarrelImagingHits",
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "EcalBarrelImagingRecHitFrame", {"EcalBarrelImagingRawHitFrame"}, {"EcalBarrelImagingRecHitFrame"},
+      {
+          .capADC          = EcalBarrelImaging_capADC,
+          .dyRangeADC      = EcalBarrelImaging_dyRangeADC,
+          .pedMeanADC      = EcalBarrelImaging_pedMeanADC,
+          .pedSigmaADC     = EcalBarrelImaging_pedSigmaADC, // not needed; use only thresholdValue
+          .resolutionTDC   = EcalBarrelImaging_resolutionTDC,
+          .timeErrorScale = EcalBarrelImaging_timeErrorScale,
+          .timeErrorOffset = EcalBarrelImaging_timeErrorOffset,
+          .thresholdFactor = 0.0, // use only thresholdValue
+          .thresholdValue  = 41,  // 8192 ADC counts/3 MeV * 0.015 MeV (desired threshold) = 41
+          .sampFrac        = "0.00429453",
+          .readout         = "EcalBarrelImagingHits",
+          .layerField      = "layer",
+          .sectorField     = "sector",
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<ImagingTopoCluster_factory>(
+      "EcalBarrelImagingProtoClusterFrame", {"EcalBarrelImagingRecHitFrame"},
+      {"EcalBarrelImagingProtoClusterFrame"},
+      {
+          .neighbourLayersRange = 2, //  # id diff for adjacent layer
+          .sameLayerDistTZ      = {2.0 * dd4hep::mm, 2 * dd4hep::mm},     //  # same layer
+          .diffLayerDistEtaPhi  = {10 * dd4hep::mrad, 10 * dd4hep::mrad}, //  # adjacent layer
+          .sameLayerMode        = eicrecon::ImagingTopoClusterConfig::ELayerMode::tz,
+          .diffLayerMode        = eicrecon::ImagingTopoClusterConfig::ELayerMode::etaphi,
+          .sectorDist           = 3.0 * dd4hep::cm,
+          .minClusterHitEdep    = 0,
+          .minClusterCenterEdep = 0,
+          .minClusterEdep       = 100 * dd4hep::MeV,
+          .minClusterNhits      = 10,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+
+  app->Add((new JOmniFactoryGeneratorT<ImagingClusterReco_factory>(
+      "EcalBarrelImagingClustersWithoutShapeFrame",
+      {"EcalBarrelImagingProtoClusterFrame",
+       "EcalBarrelImagingRawHitLinkFrame",
+       "EcalBarrelImagingRawHitAssociationFrame"},
+      {"EcalBarrelImagingClustersWithoutShapeFrame",
+       "EcalBarrelImagingClusterLinksWithoutShapeFrame",
+       "EcalBarrelImagingClusterAssociationsWithoutShapeFrame", "EcalBarrelImagingLayerFrame"},
+      {
+          .trackStopLayer = 6,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "EcalBarrelImagingClusterFrame",
+      {"EcalBarrelImagingClustersWithoutShapeFrame",
+       "EcalBarrelImagingClusterAssociationsWithoutShapeFrame"},
+      {"EcalBarrelImagingClusterFrame",
+       "EcalBarrelImagingClusterLinkFrame",
+       "EcalBarrelImagingClusterAssociationFrame"},
+      {.longitudinalShowerInfoAvailable = false, .energyWeight = "log", .logWeightBase = 6.2},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<EnergyPositionClusterMerger_factory>(
+      "EcalBarrelClusterFrame",
+      {"EcalBarrelScFiClusterFrame", "EcalBarrelScFiClusterAssociationFrame", "EcalBarrelImagingClusterFrame",
+       "EcalBarrelImagingClusterAssociationFrame"},
+      {"EcalBarrelClusterFrame",
+       "EcalBarrelClusterLinkFrame",
+       "EcalBarrelClusterAssociationFrame"},
+      {
+          .energyRelTolerance = 0.5,
+          .phiTolerance       = 0.1,
+          .etaTolerance       = 0.2,
+      },
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<TruthEnergyPositionClusterMerger_factory>(
+      "EcalBarrelTruthClusterFrame",
+      {"MCParticles", "EcalBarrelScFiClusterFrame", "EcalBarrelScFiClusterAssociationFrame",
+       "EcalBarrelImagingClusterFrame", "EcalBarrelImagingClusterAssociationFrame"},
+      {"EcalBarrelTruthClusterFrame",
+       "EcalBarrelTruthClusterLinkFrame",
+       "EcalBarrelTruthClusterAssociationFrame"},
+      app // TODO: Remove me once fixed
+      ))->SetLevel(JEventLevel::Timeslice));
 }
 }

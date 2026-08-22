@@ -250,5 +250,138 @@ void InitPlugin(JApplication* app) {
           .timeResolution = 10,
       },
       app));
+
+  // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
+  // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep
+  // in sync with the chain above.
+
+  // ***** "MPGDBarrel" (=CyMBaL)
+  // Digitization
+  if ((SiFactoryPattern & 0x1) != 0U) {
+    app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+        "MPGDBarrelRawHitFrame", {"EventHeader", "MPGDBarrelHits"},
+        {"MPGDBarrelRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+         "MPGDBarrelRawHitLinkFrame",
+#endif
+         "MPGDBarrelRawHitAssociationFrame"},
+        {
+            .threshold      = 100 * dd4hep::eV,
+            .timeResolution = 10,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+  } else {
+    app->Add((new JOmniFactoryGeneratorT<MPGDTrackerDigi_factory>(
+        "MPGDBarrelRawHitFrame", {"EventHeader", "MPGDBarrelHits"},
+        {"MPGDBarrelRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+         "MPGDBarrelRawHitLinkFrame",
+#endif
+         "MPGDBarrelRawHitAssociationFrame"},
+        {
+            .readout        = "MPGDBarrelHits",
+            .threshold      = 100 * dd4hep::eV,
+            .timeResolution = 10,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+  }
+
+  // Convert raw digitized hits into hits with geometry info (ready for tracking)
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "MPGDBarrelRecHitFrame", {"MPGDBarrelRawHitFrame"}, // Input data collection tags
+      {"MPGDBarrelRecHitFrame"},                          // Output data tag
+      {
+          .timeResolution = 10,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // ***** OuterMPGDBarrel
+  // Digitization
+  if ((SiFactoryPattern & 0x2) != 0U) {
+    app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+        "OuterMPGDBarrelRawHitFrame", {"EventHeader", "OuterMPGDBarrelHits"},
+        {"OuterMPGDBarrelRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+         "OuterMPGDBarrelRawHitLinkFrame",
+#endif
+         "OuterMPGDBarrelRawHitAssociationFrame"},
+        {
+            .threshold      = 100 * dd4hep::eV,
+            .timeResolution = 10,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+  } else {
+    app->Add((new JOmniFactoryGeneratorT<MPGDTrackerDigi_factory>(
+        "OuterMPGDBarrelRawHitFrame", {"EventHeader", "OuterMPGDBarrelHits"},
+        {"OuterMPGDBarrelRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+         "OuterMPGDBarrelRawHitLinkFrame",
+#endif
+         "OuterMPGDBarrelRawHitAssociationFrame"},
+        {
+            .readout        = "OuterMPGDBarrelHits",
+            .threshold      = 100 * dd4hep::eV,
+            .timeResolution = 10,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+  }
+
+  // Convert raw digitized hits into hits with geometry info (ready for tracking)
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "OuterMPGDBarrelRecHitFrame", {"OuterMPGDBarrelRawHitFrame"}, // Input data collection tags
+      {"OuterMPGDBarrelRecHitFrame"},                               // Output data tag
+      {
+          .timeResolution = 10,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // ***** "BackwardMPGDEndcap"
+  // Digitization
+  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+      "BackwardMPGDEndcapRawHitFrame", {"EventHeader", "BackwardMPGDEndcapHits"},
+      {"BackwardMPGDEndcapRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "BackwardMPGDEndcapRawHitLinkFrame",
+#endif
+       "BackwardMPGDEndcapRawHitAssociationFrame"},
+      {
+          .threshold      = 100 * dd4hep::eV,
+          .timeResolution = 10,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // Convert raw digitized hits into hits with geometry info (ready for tracking)
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "BackwardMPGDEndcapRecHitFrame",
+      {"BackwardMPGDEndcapRawHitFrame"}, // Input data collection tags
+      {"BackwardMPGDEndcapRecHitFrame"}, // Output data tag
+      {
+          .timeResolution = 10,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // ""ForwardMPGDEndcap"
+  // Digitization
+  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+      "ForwardMPGDEndcapRawHitFrame", {"EventHeader", "ForwardMPGDEndcapHits"},
+      {"ForwardMPGDEndcapRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "ForwardMPGDEndcapRawHitLinkFrame",
+#endif
+       "ForwardMPGDEndcapRawHitAssociationFrame"},
+      {
+          .threshold      = 100 * dd4hep::eV,
+          .timeResolution = 10,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // Convert raw digitized hits into hits with geometry info (ready for tracking)
+  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      "ForwardMPGDEndcapRecHitFrame", {"ForwardMPGDEndcapRawHitFrame"}, // Input data collection tags
+      {"ForwardMPGDEndcapRecHitFrame"},                                 // Output data tag
+      {
+          .timeResolution = 10,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
 }
 } // extern "C"

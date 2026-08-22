@@ -336,5 +336,193 @@ void InitPlugin(JApplication* app) {
        .sampFrac                        = 0.0273,
        .logWeightBase                   = 6.2},
       app));
+
+  // Timeslice-level mirror of the chains above for eventbuilder ("Frame" suffix marks the
+  // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep
+  // in sync with the chains above.
+  // ── EcalFarForwardZDC (LYSO, Island chain) ─────────────────────────────────
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "EcalFarForwardZDCRawHitFrame", {"EventHeader", "EcalFarForwardZDCHits"},
+      {"EcalFarForwardZDCRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "EcalFarForwardZDCRawHitLinkFrame",
+#endif
+       "EcalFarForwardZDCRawHitAssociationFrame"},
+      {
+          .eRes{},
+          .tRes          = 0.0 * dd4hep::ns,
+          .capADC        = 32768,
+          .dyRangeADC    = 2000 * dd4hep::MeV,
+          .pedMeanADC    = 400,
+          .pedSigmaADC   = 3.2,
+          .resolutionTDC = 10 * dd4hep::picosecond,
+          .corrMeanScale = "1.0",
+          .readout       = "EcalFarForwardZDCHits",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "EcalFarForwardZDCRecHitFrame", {"EcalFarForwardZDCRawHitFrame"},
+      {"EcalFarForwardZDCRecHitFrame"},
+      {
+          .capADC          = 32768,
+          .dyRangeADC      = 2000. * dd4hep::MeV,
+          .pedMeanADC      = 400,
+          .pedSigmaADC     = 3.2,
+          .resolutionTDC   = 10 * dd4hep::picosecond,
+          .thresholdFactor = 4.0,
+          .thresholdValue  = 0.0,
+          .sampFrac        = "1.0",
+          .readout         = "EcalFarForwardZDCHits",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+      "EcalFarForwardZDCIslandProtoClusterFrame", {"EcalFarForwardZDCRecHitFrame"},
+      {"EcalFarForwardZDCIslandProtoClusterFrame"},
+      {
+          .adjacencyMatrix{},
+          .peakNeighbourhoodMatrix{},
+          .readout{},
+          .sectorDist  = 5.0 * dd4hep::cm,
+          .localDistXY = {50 * dd4hep::cm, 50 * dd4hep::cm},
+          .localDistXZ{},
+          .localDistYZ{},
+          .globalDistRPhi{},
+          .globalDistEtaPhi{},
+          .dimScaledLocalDistXY{},
+          .splitCluster                  = true,
+          .minClusterHitEdep             = 0.1 * dd4hep::MeV,
+          .minClusterCenterEdep          = 3.0 * dd4hep::MeV,
+          .transverseEnergyProfileMetric = "globalDistEtaPhi",
+          .transverseEnergyProfileScale  = 1.,
+          .transverseEnergyProfileScaleUnits{},
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "EcalFarForwardZDCClustersWithoutShapeFrame",
+      {
+          "EcalFarForwardZDCIslandProtoClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+          "EcalFarForwardZDCRawHitLinkFrame",
+#endif
+          "EcalFarForwardZDCRawHitAssociationFrame"
+      },
+      {"EcalFarForwardZDCClustersWithoutShapeFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "EcalFarForwardZDCClusterLinksWithoutShapeFrame",
+#endif
+       "EcalFarForwardZDCClusterAssociationsWithoutShapeFrame"},
+      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "EcalFarForwardZDCClusterFrame",
+      {"EcalFarForwardZDCClustersWithoutShapeFrame",
+       "EcalFarForwardZDCClusterAssociationsWithoutShapeFrame"},
+      {"EcalFarForwardZDCClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "EcalFarForwardZDCClusterLinkFrame",
+#endif
+       "EcalFarForwardZDCClusterAssociationFrame"},
+      {.longitudinalShowerInfoAvailable = true, .energyWeight = "log", .logWeightBase = 6.2},
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // ── HcalFarForwardZDC (SiPM-on-tile, imaging chain) ────────────────────────
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "HcalFarForwardZDCRawHitFrame", {"EventHeader", "HcalFarForwardZDCHits"},
+      {"HcalFarForwardZDCRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "HcalFarForwardZDCRawHitLinkFrame",
+#endif
+       "HcalFarForwardZDCRawHitAssociationFrame"},
+      {
+          .eRes{},
+          .tRes          = 0.0 * dd4hep::ns,
+          .capADC        = 65536,
+          .dyRangeADC    = 1000. * dd4hep::MeV,
+          .pedMeanADC    = 400,
+          .pedSigmaADC   = 2,
+          .resolutionTDC = 10 * dd4hep::picosecond,
+          .corrMeanScale = "1.0",
+          .readout       = "HcalFarForwardZDCHits",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "HcalFarForwardZDCRecHitFrame", {"HcalFarForwardZDCRawHitFrame"},
+      {"HcalFarForwardZDCRecHitFrame"},
+      {
+          .capADC          = 65536,
+          .dyRangeADC      = 1000. * dd4hep::MeV,
+          .pedMeanADC      = 400,
+          .pedSigmaADC     = 2,
+          .resolutionTDC   = 10 * dd4hep::picosecond,
+          .thresholdFactor = 3.0,
+          .thresholdValue  = 0.0,
+          .sampFrac        = "1.0",
+          .readout         = "HcalFarForwardZDCHits",
+          .layerField      = "layer",
+          .sectorField     = "system",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<HEXPLIT_factory>(
+      "HcalFarForwardZDCSubcellHitFrame", {"HcalFarForwardZDCRecHitFrame"},
+      {"HcalFarForwardZDCSubcellHitFrame"},
+      {
+          .MIP           = 630. * dd4hep::keV,
+          .Emin_in_MIPs  = 0.5,
+          .delta_in_MIPs = 0.01,
+          .tmax          = 269 * dd4hep::ns,
+          .stag_type     = HEXPLITConfig::StaggerType::S2,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  double zdc_side_length = 48.8 * dd4hep::mm;
+  app->Add((new JOmniFactoryGeneratorT<ImagingTopoCluster_factory>(
+      "HcalFarForwardZDCImagingProtoClusterFrame", {"HcalFarForwardZDCSubcellHitFrame"},
+      {"HcalFarForwardZDCImagingProtoClusterFrame"},
+      {
+          .neighbourLayersRange = 1,
+          .sameLayerDistXY      = {zdc_side_length * 0.75, zdc_side_length * 0.75},
+          .diffLayerDistXY      = {zdc_side_length * 0.75, zdc_side_length * 0.75},
+          .sameLayerMode        = eicrecon::ImagingTopoClusterConfig::ELayerMode::xy,
+          .diffLayerMode        = eicrecon::ImagingTopoClusterConfig::ELayerMode::xy,
+          .sectorDist           = 10.0 * dd4hep::cm,
+          .minClusterHitEdep    = 315.0 * dd4hep::keV,
+          .minClusterCenterEdep = 25 * dd4hep::MeV,
+          .minClusterEdep       = 50.0 * dd4hep::MeV,
+          .minClusterNhits      = 10,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "HcalFarForwardZDCClustersWithoutShapeFrame",
+      {
+          "HcalFarForwardZDCImagingProtoClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+          "HcalFarForwardZDCRawHitLinkFrame",
+#endif
+          "HcalFarForwardZDCRawHitAssociationFrame"
+      },
+      {"HcalFarForwardZDCClustersWithoutShapeFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "HcalFarForwardZDCClusterLinksWithoutShapeFrame",
+#endif
+       "HcalFarForwardZDCClusterAssociationsWithoutShapeFrame"},
+      {.energyWeight        = "log",
+       .sampFrac            = 0.0273,
+       .logWeightBaseCoeffs = {5.8, 0.65, 0.31},
+       .logWeightBase_Eref  = 50 * dd4hep::GeV},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "HcalFarForwardZDCClusterFrame",
+      {"HcalFarForwardZDCClustersWithoutShapeFrame",
+       "HcalFarForwardZDCClusterAssociationsWithoutShapeFrame"},
+      {"HcalFarForwardZDCClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "HcalFarForwardZDCClusterLinkFrame",
+#endif
+       "HcalFarForwardZDCClusterAssociationFrame"},
+      {.longitudinalShowerInfoAvailable = true,
+       .energyWeight                    = "log",
+       .sampFrac                        = 0.0273,
+       .logWeightBaseCoeffs             = {5.8, 0.65, 0.31},
+       .logWeightBase_Eref              = 50 * dd4hep::GeV},
+      app))->SetLevel(JEventLevel::Timeslice));
 }
 }

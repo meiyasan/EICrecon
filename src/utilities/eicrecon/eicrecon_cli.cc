@@ -242,9 +242,25 @@ void AddAvailablePluginsToOptionParams(UserOptions& options,
   // Add the default plugins into the plugin set if there is no
   // "-Pplugins_to_ignore=default (exclude all default plugins)" option
   if (!HasExcludeDefaultPluginsInCliParams(options, "default")) {
+    // Individual names in "-Pplugins_to_ignore=name1,name2,..." are skipped
+    // too (comma-tokenized, not substring-matched: several default plugin
+    // names are substrings of others, e.g. "pid" of "pid_lut").
+    std::set<std::string> ignore_names;
+    auto has_ignore_plugins = options.params.find("plugins_to_ignore");
+    if (has_ignore_plugins != options.params.end()) {
+      std::stringstream ss(has_ignore_plugins->second);
+      std::string tok;
+      while (std::getline(ss, tok, ',')) {
+        ignore_names.insert(tok);
+      }
+    }
+
     /// @note: The sequence of adding the default plugins matters.
     /// Have to keep the original sequence to not causing troubles.
     for (std::string s : default_plugins) {
+      if (ignore_names.count(s) > 0) {
+        continue;
+      }
       plugins_str += s + ",";
     }
   }

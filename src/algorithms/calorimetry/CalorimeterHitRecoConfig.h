@@ -18,6 +18,15 @@ struct CalorimeterHitRecoConfig {
   double resolutionTDC{1};
   double corrMeanScale{1};
 
+  // Hit timing resolution model: sigma_t(E) = sqrt((timeErrorScale/sqrt(E[GeV]))^2 +
+  // timeErrorOffset^2) — the standard stochastic (photostatistics) + constant
+  // (light-collection spread, TDC quantization, electronics jitter) calorimeter
+  // timing form. Both default to 0 (timeError = 0), matching prior behavior for
+  // any detector not yet measured/configured (see each detector plugin for
+  // per-detector values fit from truth-matched hit residuals, 2026-07).
+  double timeErrorScale{0}; // stochastic term [ns * sqrt(GeV)]
+  double timeErrorOffset{0}; // constant term [ns]
+
   // zero suppression
   double thresholdFactor{0};
   double thresholdValue{0};

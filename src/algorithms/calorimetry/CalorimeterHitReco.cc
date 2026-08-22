@@ -306,8 +306,18 @@ void CalorimeterHitReco::process(const CalorimeterHitReco::Input& input,
     const decltype(edm4eic::CalorimeterHitData::local) local_position(
         pos.x() / dd4hep::mm, pos.y() / dd4hep::mm, pos.z() / dd4hep::mm);
 
-    auto recohit = recohits->create(rh.getCellID(), energy, 0, time, 0, position, dimension, sid,
-                                    lid, local_position);
+    // Energy-dependent timing resolution (stochastic term dominates at low
+    // energy, constant term at high energy — see CalorimeterHitRecoConfig.h).
+    // Floor the energy used in the division: pedestal/noise hits can have
+    // energy <= 0 before any threshold cut, which would otherwise divide by
+    // zero. 1 keV is far below any realistic threshold, just a numerical guard.
+    const float timeErrorEnergy = std::max(energy, 1e-6f);
+    const float timeError       = std::sqrt(
+        std::pow(static_cast<float>(m_cfg.timeErrorScale) / std::sqrt(timeErrorEnergy), 2) +
+        std::pow(static_cast<float>(m_cfg.timeErrorOffset), 2));
+
+    auto recohit = recohits->create(rh.getCellID(), energy, 0, time, timeError, position,
+                                    dimension, sid, lid, local_position);
     recohit.setRawHit(rh);
   }
 }

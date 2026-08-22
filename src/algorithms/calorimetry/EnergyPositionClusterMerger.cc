@@ -89,6 +89,13 @@ void EnergyPositionClusterMerger::process(const Input& input, const Output& outp
       new_clus.setEnergy(ec.getEnergy());
       new_clus.setEnergyError(ec.getEnergyError());
       new_clus.setTime(pc.getTime());
+      // Same source as setTime above (the position cluster) — timeError was
+      // never propagated here at all (this is EcalBarrelClusters' only path,
+      // BEMC-specific: EEMC/FEMC/BHCAL/FHCAL/B0ECAL build their final cluster
+      // collection directly via CalorimeterClusterRecoCoG, no merge step),
+      // so it silently stayed at the default-constructed 0 regardless of
+      // what the upstream ScFi/Imaging clusters actually carried.
+      new_clus.setTimeError(pc.getTimeError());
       new_clus.setNhits(pc.getNhits() + ec.getNhits());
       new_clus.setPosition(pc.getPosition());
       new_clus.setPositionError(pc.getPositionError());

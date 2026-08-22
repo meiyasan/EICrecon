@@ -51,7 +51,7 @@ struct FastHit {
   double time;
   float  sigma;
   float  x, y, z;  // mm
-  int    th1, ph1, th2, ph2;
+  int    theta1, phi1, theta2, phi2;
 };
 
 // Raw hit before bin calculation
@@ -63,7 +63,7 @@ struct RawHit {
 
 // Replica of thetaPhiBinCalc from EventBuilder_factory (without ROOT/TMath)
 void computeBins(float x, float y, float z,
-                 int& th1, int& ph1, int& th2, int& ph2) {
+                 int& theta1, int& phi1, int& theta2, int& phi2) {
   const double pi = M_PI;
   const double r  = std::sqrt((double)x*x + (double)y*y + (double)z*z);
   double theta    = (r > 0.0) ? std::acos((double)z / r) : 0.0;
@@ -71,16 +71,16 @@ void computeBins(float x, float y, float z,
   double phi      = std::atan2((double)y, (double)x);
   if (phi < 0.0) phi += 2.0 * pi;
 
-  th1 = (int)(theta / (pi / 12.0));
-  th2 = (int)((theta + pi / 24.0) / (pi / 12.0));
-  ph1 = (int)(phi   / (pi / 8.0));
-  ph2 = (int)((phi  + pi / 16.0) / (pi / 8.0));
+  theta1 = (int)(theta / (pi / 12.0));
+  theta2 = (int)((theta + pi / 24.0) / (pi / 12.0));
+  phi1   = (int)(phi   / (pi / 8.0));
+  phi2   = (int)((phi  + pi / 16.0) / (pi / 8.0));
 
   auto clamp = [](int v, int lo, int hi) { return std::max(lo, std::min(v, hi)); };
-  th1 = clamp(th1, 0, 11);
-  th2 = clamp(th2, 0, 11);
-  ph1 = clamp(ph1, 0, 7);
-  ph2 = clamp(ph2 % 8, 0, 7);
+  theta1 = clamp(theta1, 0, 11);
+  theta2 = clamp(theta2, 0, 11);
+  phi1   = clamp(phi1, 0, 7);
+  phi2   = clamp(phi2 % 8, 0, 7);
 }
 
 FastHit toFastHit(const RawHit& h) {
@@ -88,7 +88,7 @@ FastHit toFastHit(const RawHit& h) {
   fh.time  = h.time;
   fh.sigma = h.sigma;
   fh.x = h.x; fh.y = h.y; fh.z = h.z;
-  computeBins(h.x, h.y, h.z, fh.th1, fh.ph1, fh.th2, fh.ph2);
+  computeBins(h.x, h.y, h.z, fh.theta1, fh.phi1, fh.theta2, fh.phi2);
   return fh;
 }
 
@@ -117,45 +117,45 @@ double computeSigmaT0(const std::vector<FastHit>& hits, size_t lo, size_t hi) {
 // Coincidence scan — replica of EventBuilder_factory::Process sliding window
 // ---------------------------------------------------------------------------
 
-struct Candidate { double t0; double dt0; };
+struct Candidate { double t0; double t0sigma; };
 
 std::vector<Candidate> findCandidates(std::vector<FastHit>& hits,
-                                      float coinc   = kCoincWin,
+                                      float dt      = kCoincWin,
                                       float nsigma  = kNSigma) {
   std::sort(hits.begin(), hits.end(),
             [](const FastHit& a, const FastHit& b) { return a.time < b.time; });
 
-  int cnt1[12][8] = {};
-  int cnt2[12][8] = {};
+  int occupancy1[12][8] = {};
+  int occupancy2[12][8] = {};
   size_t lo = 0, hi = 0;
   std::vector<Candidate> out;
 
   while (lo < hits.size()) {
     while (hi < hits.size() &&
-           (hits[hi].time - hits[lo].time) <= coinc) {
-      ++cnt1[hits[hi].th1][hits[hi].ph1];
-      ++cnt2[hits[hi].th2][hits[hi].ph2];
+           (hits[hi].time - hits[lo].time) <= dt) {
+      ++occupancy1[hits[hi].theta1][hits[hi].phi1];
+      ++occupancy2[hits[hi].theta2][hits[hi].phi2];
       ++hi;
     }
 
     bool trigger = false;
     for (int it = 0; it < 12 && !trigger; ++it)
       for (int ip = 0; ip < 8 && !trigger; ++ip)
-        if (cnt1[it][ip] > 2 || cnt2[it][ip] > 2)
+        if (occupancy1[it][ip] > 2 || occupancy2[it][ip] > 2)
           trigger = true;
 
     if (trigger) {
       const double t0      = computeT0(hits, lo, hi);
       const double sigma_t0 = computeSigmaT0(hits, lo, hi);
       out.push_back({t0, nsigma * sigma_t0});
-      for (size_t k = lo; k < hi; ++k) {
-        --cnt1[hits[k].th1][hits[k].ph1];
-        --cnt2[hits[k].th2][hits[k].ph2];
+      for (size_t j = lo; j < hi; ++j) {
+        --occupancy1[hits[j].theta1][hits[j].phi1];
+        --occupancy2[hits[j].theta2][hits[j].phi2];
       }
       lo = hi;
     } else {
-      --cnt1[hits[lo].th1][hits[lo].ph1];
-      --cnt2[hits[lo].th2][hits[lo].ph2];
+      --occupancy1[hits[lo].theta1][hits[lo].phi1];
+      --occupancy2[hits[lo].theta2][hits[lo].phi2];
       ++lo;
       if (hi < lo) hi = lo;
     }
@@ -226,7 +226,7 @@ TEST(TimeAlignment, RcCorrection_OnAxis) {
 }
 
 // ===========================================================================
-// II. EventBuilder: t0 and dt0 computation
+// II. EventBuilder: t0 and t0sigma computation
 // ===========================================================================
 
 TEST(EventBuilder, T0_SingleTOFHit) {
@@ -322,8 +322,8 @@ TEST(EventBuilder, DIS_NC_BackwardElectron) {
       << "DIS_NC: exactly one backward-electron candidate";
   EXPECT_NEAR(cands[0].t0, 100.0, 0.5)
       << "t0 should be within 0.5 ns of the cluster centre";
-  EXPECT_LT(cands[0].dt0, 1.0)
-      << "dt0 should be small for a TOF-dominated cluster";
+  EXPECT_LT(cands[0].t0sigma, 1.0)
+      << "t0sigma should be small for a TOF-dominated cluster";
 }
 
 // 2 — DIS_CC: forward hadronic activity only (θ < 45°, bin th=2), no backward electron
@@ -338,7 +338,7 @@ TEST(EventBuilder, DIS_CC_ForwardHadrons_NoElectron) {
   ASSERT_EQ(cands.size(), 1u)
       << "DIS_CC: one candidate from forward hadronic cluster";
   EXPECT_NEAR(cands[0].t0, 200.0, 0.5);
-  EXPECT_LT(cands[0].dt0, 1.0);
+  EXPECT_LT(cands[0].t0sigma, 1.0);
 }
 
 // 3 — DDIS: diffractive DIS — backward electron at t=300 ns, forward remnant at t=310 ns
@@ -395,7 +395,7 @@ TEST(EventBuilder, SIDIS_ElectronPlusForwardHadron) {
   ASSERT_GE(cands.size(), 1u)
       << "SIDIS: candidate from backward electron + forward hadron";
   EXPECT_NEAR(cands[0].t0, 602.0, 6.0);
-  EXPECT_LT(cands[0].dt0, 1.0);
+  EXPECT_LT(cands[0].t0sigma, 1.0);
 }
 
 // ===========================================================================

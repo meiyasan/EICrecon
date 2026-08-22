@@ -49,5 +49,37 @@ void InitPlugin(JApplication* app) {
       "SiBarrelTrackerRecHits", {"SiBarrelRawHitsWithNoise"}, {"SiBarrelTrackerRecHits"},
       {}, // default config
       app));
+
+  // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
+  // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep in
+  // sync with the chain above.
+  app->Add(new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+      JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>::TypedWiring{
+          .m_tag                 = "SiBarrelRawHitFrame",
+          .m_default_input_tags  = {"EventHeader", "SiBarrelHits"},
+          .m_default_output_tags = {"SiBarrelRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+                                    "SiBarrelRawHitLinkFrame",
+#endif
+                                    "SiBarrelRawHitAssociationFrame"},
+          .m_default_cfg =
+              {
+                  .threshold = 0.54 * dd4hep::keV,
+              },
+          .level = JEventLevel::Timeslice},
+      app));
+
+  // Convert raw digitized hits into hits with geometry info (ready for tracking)
+  app->Add(new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+      JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>::TypedWiring{
+          .m_tag                 = "SiBarrelTrackerRecHitFrame",
+          .m_default_input_tags  = {"SiBarrelRawHitFrame"},
+          .m_default_output_tags = {"SiBarrelTrackerRecHitFrame"},
+          .m_default_cfg =
+              {
+                  .timeResolution = 10,
+              },
+          .level = JEventLevel::Timeslice},
+      app));
 }
 } // extern "C"

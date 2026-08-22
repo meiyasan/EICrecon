@@ -52,5 +52,15 @@ void InitPlugin(JApplication* app) {
       "RICHEndcapNRawHits", {"EventHeader", "PFRICHHits"},
       {"RICHEndcapNRawHits", "RICHEndcapNRawHitsLinks", "RICHEndcapNRawHitsAssociations"}, digi_cfg,
       app));
+
+  // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
+  // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep in
+  // sync with the chain above.
+  app->Add((new JOmniFactoryGeneratorT<PhotoMultiplierHitDigi_factory>(
+      "RICHEndcapNRawHitFrame", {"EventHeader", "PFRICHHits"},
+      {"RICHEndcapNRawHitFrame",
+       "RICHEndcapNRawHitsLinkFrame",
+       "RICHEndcapNRawHitsAssociationFrame"},
+      digi_cfg, app))->SetLevel(JEventLevel::Timeslice));
 }
 }

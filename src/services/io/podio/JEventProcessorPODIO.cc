@@ -484,7 +484,6 @@ JEventProcessorPODIO::JEventProcessorPODIO() {
       "DIRCParticleIDs",
 
       // "triggerflag",
-      "EventHeader_TS", // This is a timeslice header, not a PODIO collection
 
       // Eventbuilder TimeAlign/TimeCoinc debug pass-through (see EventUnfolder
       // in global/eventbuilder/eventbuilder.cc): full, ungated copies of the
@@ -648,27 +647,35 @@ void JEventProcessorPODIO::FindCollectionsToWrite(const std::shared_ptr<const JE
     std::vector<std::regex> output_collections_regex(m_output_collections.size());
     std::ranges::transform(m_output_collections, output_collections_regex.begin(),
                            [](const std::string& r) { return std::regex(r); });
+    // Warn per include-list ENTRY that matched nothing: matching_collections_set
+    // below is intersected with all_collections_set by construction, so the old
+    // per-collection "not present in factory set" check further down could
+    // never fire -- a requested collection that exists at no event level (e.g.
+    // a Timeslice-only name, invisible to this PhysicsEvent-level processor)
+    // was dropped SILENTLY. That silence cost a full debugging session
+    // (2026-07-24, TOF eventbuilder truth output); make it loud.
+    for (const auto& entry : m_output_collections) {
+      const std::regex entry_regex(entry);
+      if (!std::ranges::any_of(all_collections_set, [&](const std::string& c) {
+            return std::regex_match(c, entry_regex);
+          })) {
+        m_log->warn("Explicitly included collection '{}' not present in factory set, omitting.",
+                    entry);
+      }
+    }
     std::ranges::copy_if(all_collections_set,
                          std::inserter(matching_collections_set, matching_collections_set.end()),
                          [&](const std::string& c) {
                            return std::ranges::any_of(
                                output_collections_regex,
-
                                [&](const std::regex& r) { return std::regex_match(c, r); });
                          });
 
     for (const auto& col : matching_collections_set) {
       if (m_output_exclude_collections.find(col) == m_output_exclude_collections.end()) {
-        // Included and not excluded
-        if (all_collections_set.find(col) == all_collections_set.end()) {
-          // Included, but not a valid PODIO type
-          m_log->warn("Explicitly included collection '{}' not present in factory set, omitting.",
-                      col);
-        } else {
-          // Included, not excluded, and a valid PODIO type
-          m_collections_to_write.push_back(col);
-          m_log->debug("Persisting collection '{}'", col);
-        }
+        // Included, not excluded, and present in the factory set
+        m_collections_to_write.push_back(col);
+        m_log->info("Persisting collection '{}'", col);
       }
     }
   }

@@ -37,6 +37,13 @@ void InitPlugin(JApplication* app) {
   decltype(CalorimeterHitDigiConfig::pedSigmaADC) HcalEndcapPInsert_pedSigmaADC = 2;
   decltype(CalorimeterHitDigiConfig::resolutionTDC) HcalEndcapPInsert_resolutionTDC =
       10 * dd4hep::picosecond;
+  // Hit timing resolution sigma_t(E) = sqrt((a/sqrt(E[GeV]))^2 + b^2), fit from
+  // truth-matched RecHit residuals (2026-07); b is this detector's TDC-quantization
+  // floor (resolutionTDC/sqrt(12)), not necessarily the full constant term. Note:
+  // this measured `a` is small relative to its uncertainty (0.0002+-0.0001) —
+  // treat as approximate.
+  decltype(CalorimeterHitRecoConfig::timeErrorScale) HcalEndcapPInsert_timeErrorScale = 0.0002;
+  decltype(CalorimeterHitRecoConfig::timeErrorOffset) HcalEndcapPInsert_timeErrorOffset = 0.0029;
 
   app->Add(new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
       "HcalEndcapPInsertRawHits", {"EventHeader", "HcalEndcapPInsertHits"},
@@ -63,6 +70,8 @@ void InitPlugin(JApplication* app) {
           .pedMeanADC      = HcalEndcapPInsert_pedMeanADC,
           .pedSigmaADC     = HcalEndcapPInsert_pedSigmaADC,
           .resolutionTDC   = HcalEndcapPInsert_resolutionTDC,
+          .timeErrorScale  = HcalEndcapPInsert_timeErrorScale,
+          .timeErrorOffset = HcalEndcapPInsert_timeErrorOffset,
           .thresholdFactor = 0.,
           .thresholdValue  = 41.0, // 0.25 MeV --> 0.25 / 200 * 32768 = 41
 
@@ -176,6 +185,11 @@ void InitPlugin(JApplication* app) {
   decltype(CalorimeterHitDigiConfig::pedMeanADC) LFHCAL_pedMeanADC       = 50;
   decltype(CalorimeterHitDigiConfig::pedSigmaADC) LFHCAL_pedSigmaADC     = 10;
   decltype(CalorimeterHitDigiConfig::resolutionTDC) LFHCAL_resolutionTDC = 10 * dd4hep::picosecond;
+  // Hit timing resolution sigma_t(E) = sqrt((a/sqrt(E[GeV]))^2 + b^2), fit from
+  // truth-matched RecHit residuals (2026-07); b is this detector's TDC-quantization
+  // floor (resolutionTDC/sqrt(12)), not necessarily the full constant term.
+  decltype(CalorimeterHitRecoConfig::timeErrorScale) LFHCAL_timeErrorScale   = 1.1229;
+  decltype(CalorimeterHitRecoConfig::timeErrorOffset) LFHCAL_timeErrorOffset = 0.0029;
 
   app->Add(new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
       "LFHCALRawHits", {"EventHeader", "LFHCALHits"},
@@ -203,6 +217,8 @@ void InitPlugin(JApplication* app) {
           .pedMeanADC      = LFHCAL_pedMeanADC,
           .pedSigmaADC     = LFHCAL_pedSigmaADC,
           .resolutionTDC   = LFHCAL_resolutionTDC,
+          .timeErrorScale  = LFHCAL_timeErrorScale,
+          .timeErrorOffset = LFHCAL_timeErrorOffset,
           .thresholdFactor = 0.0,
           .thresholdValue  = 20, // 0.3 MeV deposition --> adc = 50 + 0.3 / 1000 * 65536 == 70
           .sampFrac        = "(rlayerz == 0) ? 0.019 : 0.037", // 0.019 only in the 0-th tile
@@ -338,5 +354,194 @@ void InitPlugin(JApplication* app) {
       {"LFHCALSplitMergeClusters", "LFHCALSplitMergeClusterLinks",
        "LFHCALSplitMergeClusterAssociations"},
       {.longitudinalShowerInfoAvailable = true}, app));
+
+  // Timeslice-level mirror of the chains above for eventbuilder ("Frame" suffix marks the
+  // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep
+  // in sync with the chains above.
+  // ── HcalEndcapPInsert (imaging chain) ──────────────────────────────────────
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "HcalEndcapPInsertRawHitFrame", {"EventHeader", "HcalEndcapPInsertHits"},
+      {"HcalEndcapPInsertRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "HcalEndcapPInsertRawHitLinkFrame",
+#endif
+       "HcalEndcapPInsertRawHitAssociationFrame"},
+      {
+          .eRes          = {},
+          .tRes          = 0.0 * dd4hep::ns,
+          .capADC        = HcalEndcapPInsert_capADC,
+          .dyRangeADC    = HcalEndcapPInsert_dyRangeADC,
+          .pedMeanADC    = HcalEndcapPInsert_pedMeanADC,
+          .pedSigmaADC   = HcalEndcapPInsert_pedSigmaADC,
+          .resolutionTDC = HcalEndcapPInsert_resolutionTDC,
+          .corrMeanScale = "1.0",
+          .readout       = "HcalEndcapPInsertHits",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "HcalEndcapPInsertRecHitFrame", {"HcalEndcapPInsertRawHitFrame"},
+      {"HcalEndcapPInsertRecHitFrame"},
+      {
+          .capADC          = HcalEndcapPInsert_capADC,
+          .dyRangeADC      = HcalEndcapPInsert_dyRangeADC,
+          .pedMeanADC      = HcalEndcapPInsert_pedMeanADC,
+          .pedSigmaADC     = HcalEndcapPInsert_pedSigmaADC,
+          .resolutionTDC   = HcalEndcapPInsert_resolutionTDC,
+          .timeErrorScale  = HcalEndcapPInsert_timeErrorScale,
+          .timeErrorOffset = HcalEndcapPInsert_timeErrorOffset,
+          .thresholdFactor = 0.,
+          .thresholdValue  = 41.0,
+          .sampFrac        = "1.0",
+          .readout         = "HcalEndcapPInsertHits",
+          .layerField      = "layer",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<HEXPLIT_factory>(
+      "HcalEndcapPInsertSubcellHitFrame", {"HcalEndcapPInsertRecHitFrame"},
+      {"HcalEndcapPInsertSubcellHitFrame"},
+      {
+          .MIP          = 480. * dd4hep::keV,
+          .Emin_in_MIPs = 0.5,
+          .tmax         = 162 * dd4hep::ns,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<ImagingTopoCluster_factory>(
+      "HcalEndcapPInsertImagingProtoClusterFrame", {"HcalEndcapPInsertSubcellHitFrame"},
+      {"HcalEndcapPInsertImagingProtoClusterFrame"},
+      {
+          .neighbourLayersRange = 1,
+          .sameLayerDistXY =
+              {"0.5 * max(HcalEndcapPInsertCellSizeLGRight, HcalEndcapPInsertCellSizeLGLeft)",
+               "0.5 * max(HcalEndcapPInsertCellSizeLGRight, HcalEndcapPInsertCellSizeLGLeft) * "
+               "sin(pi / 3)"},
+          .diffLayerDistXY =
+              {"0.25 * max(HcalEndcapPInsertCellSizeLGRight, HcalEndcapPInsertCellSizeLGLeft)",
+               "0.25 * max(HcalEndcapPInsertCellSizeLGRight, HcalEndcapPInsertCellSizeLGLeft) * "
+               "sin(pi / 3)"},
+          .sameLayerMode        = eicrecon::ImagingTopoClusterConfig::ELayerMode::xy,
+          .sectorDist           = 10.0 * dd4hep::cm,
+          .minClusterHitEdep    = 5.0 * dd4hep::keV,
+          .minClusterCenterEdep = 3.0 * dd4hep::MeV,
+          .minClusterEdep       = 11.0 * dd4hep::MeV,
+          .minClusterNhits      = 100,
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "HcalEndcapPInsertClustersWithoutShapeFrame",
+      {
+          "HcalEndcapPInsertImagingProtoClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+          "HcalEndcapPInsertRawHitLinkFrame",
+#endif
+          "HcalEndcapPInsertRawHitAssociationFrame"
+      },
+      {"HcalEndcapPInsertClustersWithoutShapeFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "HcalEndcapPInsertClusterLinksWithoutShapeFrame",
+#endif
+       "HcalEndcapPInsertClusterAssociationsWithoutShapeFrame"},
+      {.energyWeight = "log", .sampFrac = 0.0257, .logWeightBase = 6.2, .enableEtaBounds = false},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "HcalEndcapPInsertClusterFrame",
+      {"HcalEndcapPInsertClustersWithoutShapeFrame",
+       "HcalEndcapPInsertClusterAssociationsWithoutShapeFrame"},
+      {"HcalEndcapPInsertClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "HcalEndcapPInsertClusterLinkFrame",
+#endif
+       "HcalEndcapPInsertClusterAssociationFrame"},
+      {.longitudinalShowerInfoAvailable = true,
+       .energyWeight                    = "log",
+       .sampFrac                        = 0.0257,
+       .logWeightBase                   = 6.2},
+      app))->SetLevel(JEventLevel::Timeslice));
+
+  // ── LFHCAL (Island chain) ──────────────────────────────────────────────────
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+      "LFHCALRawHitFrame", {"EventHeader", "LFHCALHits"},
+      {"LFHCALRawHitFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "LFHCALRawHitLinkFrame",
+#endif
+       "LFHCALRawHitAssociationFrame"},
+      {
+          .eRes          = {},
+          .tRes          = 0.0 * dd4hep::ns,
+          .capADC        = LFHCAL_capADC,
+          .capTime       = 100,
+          .dyRangeADC    = LFHCAL_dyRangeADC,
+          .pedMeanADC    = LFHCAL_pedMeanADC,
+          .pedSigmaADC   = LFHCAL_pedSigmaADC,
+          .resolutionTDC = LFHCAL_resolutionTDC,
+          .corrMeanScale = "1.0",
+          .readout       = "LFHCALHits",
+          .fields        = {"layerz"},
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+      "LFHCALRecHitFrame", {"LFHCALRawHitFrame"}, {"LFHCALRecHitFrame"},
+      {
+          .capADC          = LFHCAL_capADC,
+          .dyRangeADC      = LFHCAL_dyRangeADC,
+          .pedMeanADC      = LFHCAL_pedMeanADC,
+          .pedSigmaADC     = LFHCAL_pedSigmaADC,
+          .resolutionTDC   = LFHCAL_resolutionTDC,
+          .timeErrorScale  = LFHCAL_timeErrorScale,
+          .timeErrorOffset = LFHCAL_timeErrorOffset,
+          .thresholdFactor = 0.0,
+          .thresholdValue  = 20,
+          .sampFrac        = "(rlayerz == 0) ? 0.019 : 0.037",
+          .readout         = "LFHCALHits",
+          .layerField      = "rlayerz",
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+      "LFHCALIslandProtoClusterFrame", {"LFHCALRecHitFrame"}, {"LFHCALIslandProtoClusterFrame"},
+      {
+          .adjacencyMatrix = Form("%s||%s", neighbor.data(), corner2D.data()),
+          .peakNeighbourhoodMatrix{},
+          .readout    = "LFHCALHits",
+          .sectorDist = 0 * dd4hep::cm,
+          .localDistXY{},
+          .localDistXZ{},
+          .localDistYZ{},
+          .globalDistRPhi{},
+          .globalDistEtaPhi{},
+          .dimScaledLocalDistXY{},
+          .splitCluster                  = false,
+          .minClusterHitEdep             = 1 * dd4hep::MeV,
+          .minClusterCenterEdep          = 100.0 * dd4hep::MeV,
+          .transverseEnergyProfileMetric = "globalDistEtaPhi",
+          .transverseEnergyProfileScale  = 1.,
+          .transverseEnergyProfileScaleUnits{},
+      },
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+      "LFHCALClustersWithoutShapeFrame",
+      {
+          "LFHCALIslandProtoClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+          "LFHCALRawHitLinkFrame",
+#endif
+          "LFHCALRawHitAssociationFrame"
+      },
+      {"LFHCALClustersWithoutShapeFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "LFHCALClusterLinksWithoutShapeFrame",
+#endif
+       "LFHCALClusterAssociationsWithoutShapeFrame"},
+      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 4.5, .enableEtaBounds = false},
+      app))->SetLevel(JEventLevel::Timeslice));
+  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+      "LFHCALClusterFrame",
+      {"LFHCALClustersWithoutShapeFrame", "LFHCALClusterAssociationsWithoutShapeFrame"},
+      {"LFHCALClusterFrame",
+#if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
+       "LFHCALClusterLinkFrame",
+#endif
+       "LFHCALClusterAssociationFrame"},
+      {.longitudinalShowerInfoAvailable = true, .energyWeight = "log", .logWeightBase = 4.5},
+      app))->SetLevel(JEventLevel::Timeslice));
 }
 }
