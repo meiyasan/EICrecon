@@ -11,19 +11,18 @@
 #include "JEventProcessorManagedPODIO.h"
 #include "JEventProcessorPODIO.h"
 #include "JEventSourceManagedPODIO.h"
-#include "JEventSourcePODIO.h"
+#include "JEventSourcePODIO_generator.h"
 
 // Make this a JANA plugin
 extern "C" {
 void InitPlugin(JApplication* app) {
   InitJANAPlugin(app);
-
   // Check if managed mode is requested
   if (app->GetJParameterManager()->Exists("podio:managed_socket_path")) {
     app->Add(new JEventSourceManagedPODIO("", app));
     app->Add(new JEventProcessorManagedPODIO());
   } else {
-    app->Add(new JEventSourceGeneratorT<JEventSourcePODIO>());
+    app->Add(new JEventSourcePODIO_generator);
     app->Add(new JEventProcessorPODIO());
   }
 }
