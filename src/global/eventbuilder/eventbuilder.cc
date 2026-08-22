@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -102,6 +103,25 @@ struct EventUnfolder : public JEventUnfolder {
   Parameter<float> mc_time_window{this, "eventbuilder:truth:mc_time_window", 50.0,
       "half-width (ns) around t0 for MCParticles carried into the child; -1 = all"};
 
+  // Scoped, temporary mitigation for a real EVGEN-cache bug (signal.sh's
+  // per-class evgen directory is not beam-scoped, so a class with no evgen
+  // for the requested beam silently falls back to whatever other beam's
+  // files happen to be cached -- confirmed on live 10x100 production:
+  // ddvcs/jpsiphoto/omega/upi0 only ever had 18x275 evgen, so their
+  // contribution to "10x100" frames is actually 18x275-kinematics events
+  // run through the 10x100 detector/beampipe geometry). Not a code fix for
+  // that root cause (deferred) -- this only stops the exposed TRUTH LABEL
+  // for these classes' hits/links from claiming a specific, wrong class.
+  // Comma-separated "lo:hi" generatorStatus bands (inclusive); a leading
+  // particle whose effective status falls in one is truthWeight()'d as
+  // status 0 (unknown) instead of its real class band. Hits/particles
+  // still simulate and reconstruct normally -- only the label is scrubbed.
+  Parameter<std::string> exclude_status_ranges{
+      this, "eventbuilder:truth:exclude_status_ranges", "",
+      "comma-separated lo:hi generatorStatus bands scrubbed to status 0 in "
+      "truth labels (mitigates cross-beam EVGEN contamination for specific "
+      "classes; empty = no exclusion)"};
+
   // Cross-frame Si/B0 recovery. EventUnfolder fetches slow-detector hits
   // from adjacent frames through TimesliceBuffer_service and gates them per
   // candidate, the same way as current-frame hits. forward_frames adds no
@@ -130,6 +150,13 @@ struct EventUnfolder : public JEventUnfolder {
   std::shared_ptr<TimesliceBuffer_service> m_ts_buffer;
   bool m_warned_candidate_overflow = false;
   bool m_checked_config = false;
+  std::vector<std::pair<int, int>> m_excluded_ranges; // parsed exclude_status_ranges, see checkConfig()
+  bool isExcludedStatus(int status) const {
+    for (const auto& [lo, hi] : m_excluded_ranges)
+      if (status >= lo && status <= hi)
+        return true;
+    return false;
+  }
 
   // Adjacent-frame slow-detector hits, fetched once per parent frame
   // (Unfold() runs sequentially, one parent at a time).
@@ -531,6 +558,33 @@ struct EventUnfolder : public JEventUnfolder {
     if (m_checked_config)
       return;
     m_checked_config = true;
+    // Parse exclude_status_ranges ("lo:hi,lo:hi,...") once. Malformed
+    // entries are skipped with a warning rather than aborting the job --
+    // this is a scoped mitigation flag, not a hard config requirement.
+    {
+      std::stringstream ss(exclude_status_ranges());
+      std::string tok;
+      while (std::getline(ss, tok, ',')) {
+        if (tok.empty())
+          continue;
+        const auto colon = tok.find(':');
+        if (colon == std::string::npos) {
+          jout << "[eventbuilder] exclude_status_ranges: skipping malformed entry '" << tok
+               << "' (expected lo:hi)" << jendl;
+          continue;
+        }
+        try {
+          const int lo = std::stoi(tok.substr(0, colon));
+          const int hi = std::stoi(tok.substr(colon + 1));
+          m_excluded_ranges.emplace_back(lo, hi);
+          jout << "[eventbuilder] truth label exclusion active: status " << lo << "-" << hi
+               << jendl;
+        } catch (const std::exception&) {
+          jout << "[eventbuilder] exclude_status_ranges: skipping malformed entry '" << tok << "'"
+               << jendl;
+        }
+      }
+    }
     const int32_t n_fwd = forward_frames();
     m_fwd_effective = n_fwd;
     if (n_fwd <= 0)
@@ -576,25 +630,48 @@ struct EventUnfolder : public JEventUnfolder {
     // list already reaches every child. A consumer can match a kept
     // MCParticle's own time against it offline. What is added below is the
     // same match, baked into each kept hit's tracker or calo RawHitLink
-    // weight (weight = generatorStatus + slot*1e6), using the same
+    // weight (weight = generatorStatus + (slot+1)*1e6), using the same
     // label-in-weight convention as the rest of that code.
     std::vector<double> coincident_times;
+    std::vector<int> coincident_stream;
     {
       const auto& w = cand.getWeights();
       if (w.size() > 25) {
         const int n = static_cast<int>(w[25]);
-        for (int k = 0; k < n && 26 + 2 * k < static_cast<int>(w.size()); ++k)
+        for (int k = 0; k < n && 27 + 2 * k < static_cast<int>(w.size()); ++k) {
           coincident_times.push_back(w[26 + 2 * k]);
+          coincident_stream.push_back(static_cast<int>(w[27 + 2 * k]));
+        }
       }
     }
-    auto coincidentSlot = [&](double t) -> int {
+    // Nearest-TIME slot assignment is the wrong primary signal: during
+    // real pileup, distinct collisions routinely land within dt of each
+    // other (that is what makes them "coincident" at all), so "closest in
+    // time" frequently picks a different collision than the one that
+    // actually produced this hit's particle -- confirmed empirically,
+    // ~12% of labelled links in true-pileup candidates decoded to a slot
+    // whose trigger_classes entry did not match the hit's own class.
+    // truthWeight already has `status` in hand at the point it needs a
+    // slot, and coincident_stream already carries each candidate
+    // collision's class -- match on THAT first (never assign a slot whose
+    // class disagrees with the hit's own), and use nearest time only to
+    // break a tie between two same-class collisions genuinely coincident
+    // in this candidate (e.g. two ncdisq1 collisions overlapping). No
+    // stream match at all means this particle's own collision was not
+    // independently recognized as coincident (e.g. carried in only via
+    // the wider mc_time_window gate, past dt) -- -1 (no slot) is the
+    // honest answer, not a guess.
+    auto coincidentSlot = [&](double t, int status) -> int {
       if (coincident_times.empty())
         return -1;
-      int best = 0;
-      double best_d = std::abs(t - coincident_times[0]);
-      for (size_t k = 1; k < coincident_times.size(); ++k) {
+      const int stream = (status == 1) ? 0 : status / 1000;
+      int best = -1;
+      double best_d = 0.0;
+      for (size_t k = 0; k < coincident_stream.size(); ++k) {
+        if (coincident_stream[k] != stream)
+          continue;
         const double d = std::abs(t - coincident_times[k]);
-        if (d < best_d) {
+        if (best < 0 || d < best_d) {
           best_d = d;
           best   = int(k);
         }
@@ -604,11 +681,15 @@ struct EventUnfolder : public JEventUnfolder {
 
     // The per-hit truth label written into every RawHitLink weight:
     //
-    //   weight = slot*1e6 + (generatorStatus & 0xFFFF)
+    //   weight = (slot+1)*1e6 + (generatorStatus & 0xFFFF)
     //
     // Two fields, nested, never overlapping. The low half is the generator
     // status (class band + native code, <= 35999 by construction); the high
-    // half is which coincident collision this hit belongs to.
+    // half is which coincident collision this hit belongs to, offset by one
+    // so a high half of exactly 0 unambiguously means "no matching
+    // collision in this candidate's trigger_classes" (coincidentSlot
+    // returned -1), never "slot 0". Decode: high = floor(weight/1e6); slot
+    // = high - 1 if high > 0, else "no slot".
     //
     // The mask is a guard, not a transformation: DDG4 stores the generator
     // status in an unsigned short, so it cannot exceed 65535 anyway. Stating
@@ -618,12 +699,30 @@ struct EventUnfolder : public JEventUnfolder {
     //
     // slot stays below 16: float32 holds integers exactly only to 2^24, and
     // 16*1e6 + 65535 is the last value that fits.
+    checkConfig(); // idempotent; guarantees m_excluded_ranges is parsed before use below
     auto truthWeight = [&](int status, double ptime) -> float {
+      // Slot is matched against the hit's TRUE class (coincidentSlot's own
+      // stream match), before any scrubbing below -- an excluded particle
+      // still really did come from a specific coincident collision, and
+      // zeroing status first would make it look native-primary (stream 0)
+      // instead of correctly finding no match.
+      const int slot = coincidentSlot(ptime, status);
+      // Scrub the label for a scoped, temporary EVGEN-contamination
+      // mitigation -- see exclude_status_ranges's declaration comment.
+      if (isExcludedStatus(status))
+        status = 0;
       float w = static_cast<float>(status & 0xFFFF);
-      const int slot = coincidentSlot(ptime);
+      // Packed as slot+1, not slot: 0 must mean "no slot" unambiguously.
+      // With true pileup, coincidentSlot can now legitimately return -1 for
+      // ONE hit in a candidate while another hit in the SAME candidate
+      // matches slot 0 -- unlike before this session's fix, when -1 only
+      // ever happened candidate-wide (empty trigger_classes), so slot 0
+      // and "no slot" never needed to coexist in one candidate's hits.
+      // Packing slot 0 as bare 0*1e6 would make it indistinguishable from
+      // "no slot" on a per-hit basis; +1 removes the collision.
       assert(slot < 16 && "coincident slot exceeds float32-exact packing range");
       if (slot >= 0)
-        w += static_cast<float>(slot) * 1e6f;
+        w += static_cast<float>(slot + 1) * 1e6f;
       return w;
     };
 
@@ -825,8 +924,13 @@ struct EventUnfolder : public JEventUnfolder {
     //
     // generatorStatus encodes provenance (assigned at generation time):
     //   < 10000   machine background / native (bkg sub-bands at 2000-6999)
-    //   >= 10000  physics classes, one 10000-wide band per class, with
-    //             1000-wide same-class pile-up instance sub-bands inside
+    //   >= 10000  physics classes, one 1000-wide band per class (base =
+    //             10000 + class_index*1000, max 35999). A wider,
+    //             10000-wide-per-class layout with 1000-wide same-class
+    //             pile-up instance sub-bands is designed (rewrite_status.py
+    //             in the production repo) but not live: SBM's merged output
+    //             format blocks that rewrite today, so every real status is
+    //             instance 1 of the 1000-wide layout above.
     // The original weight is always 1.0 (from SiliconTrackerDigi), so
     // nothing is lost by overwriting it. Offline, join a link to a RecHit
     // by rawHit (`from`) ObjectID (collectionID, index) equality; the

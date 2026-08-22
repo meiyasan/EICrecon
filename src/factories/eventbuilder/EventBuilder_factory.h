@@ -259,7 +259,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
       "(time, stream) list as trigger_classes, weights[25+] (count at "
       "[25], pairs at [26+2k]/[27+2k]). stream = generatorStatus/1000 of "
       "the collision's base status: 0 = native/tagged primary, >= 10 = a "
-      "physics class (class_index = (stream-10)/10). 0 = off, weights end "
+      "physics class (class_index = stream-10). 0 = off, weights end "
       "at [24]."};
 
   // Adaptive-threshold trigger mode: instead of the fixed topology:threshold
@@ -1243,7 +1243,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
     std::vector<double> mcts(pending.size(), kNoMCTime);
     std::vector<int> nexps(pending.size(), 0);
     // Which class(es) coincided (trigger_classes_mask, weights[17]): bit N
-    // = class_index N (0-25), where class_index = (stream - 10) / 10 for
+    // = class_index N (0-25), where class_index = stream - 10 for
     // physics streams. A native primary (stream 0) sets no bit. Decode a
     // bit to a class name with the class table in AGENTS.md.
     std::vector<uint32_t> classes_mask(pending.size(), 0);
@@ -1266,7 +1266,14 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
         ++cnt;
         const int stream = collision_stream[m];
         if (stream >= 10) {
-          const int cls = (stream - 10) / 10;
+          // stream = status / 1000 = 10 + class_index (base 10000, 1000-wide
+          // bands, see status_bands.py's stream_to_class_index) -- NOT the
+          // abandoned 10000-wide layout, so no extra /10 here. That stray
+          // /10 collapsed classes 0-9/10-19/20-25 into three buckets
+          // (0/1/2), the same class of bug already fixed on the Python side
+          // this session (data_stats.py's cls_inj and cls_hits //10000
+          // bugs) -- this was the matching bug on the C++ emit side.
+          const int cls = stream - 10;
           if (cls >= 0 && cls < 26)
             smask |= (1u << cls);
         }
@@ -1515,7 +1522,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
   //                 follow, at weights[26+2k] and weights[27+2k] for k in
   //                 [0, N). stream = status/1000 of the collision's base
   //                 status: 0 = native primary, >= 10 = a physics class
-  //                 (class_index = (stream-10)/10). This lets a consumer
+  //                 (class_index = stream-10). This lets a consumer
   //                 attribute individual hits or MCParticles to the correct
   //                 collision when two or more genuinely overlap one
   //                 candidate; see eventbuilder.cc's MCParticle/hit gating.

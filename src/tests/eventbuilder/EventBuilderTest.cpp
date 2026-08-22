@@ -563,63 +563,117 @@ TEST(TruePileup, CoincidentSlot_EmptyListReturnsMinusOne) {
 }
 
 // ===========================================================================
-// VI-b. generatorStatus decode (10000-wide class bands, instance sub-bands),
-//       count-based flag semantics, and float32 slot packing
+// VI-b. generatorStatus decode: the LIVE 1000-wide-per-class scheme, plus
+//       the DORMANT 10000-wide instance-sub-band scheme, and float32 slot
+//       packing
 // ===========================================================================
 //
-// Mirrors the production arithmetic: EventBuilder_factory.h's collision
-// loop (status >= 10000, stream = status/1000, class_index =
-// (stream-10)/10) and eventbuilder.cc's weight = generatorStatus +
-// slot*1e6 packing with its slot < 16 float32-exactness bound.
+// LIVE scheme mirrors the production arithmetic: EventBuilder_factory.h's
+// collision loop (status >= 10000, stream = status/1000, class_index =
+// stream-10) and signal.sh's own _CLASS_STATUS base values (10000, 11000,
+// 12000, ... -- 1000 apart, confirmed against the real generation script,
+// not assumed). class_index = (stream-10)/10 (an extra /10, assuming a
+// 10000-wide band) was a real bug found and fixed this session -- it
+// collapsed classes 0-9/10-19/20-25 into three buckets. These LIVE tests
+// exist specifically to catch a regression of that bug; the DORMANT tests
+// further down do NOT exercise it (they test a different, inactive band
+// width) and would not have caught it.
+//
+// DORMANT scheme: a wider, 10000-wide-per-class layout with 1000-wide
+// same-class pile-up instance sub-bands is designed in the production
+// repo's rewrite_status.py, meant to run between the SBM merge and npsim.
+// It unconditionally self-disables today (SBM writes ROOT-format merges
+// the rewriter cannot parse), so no real status ever has instance > 1 --
+// these tests protect the arithmetic FOR WHEN that blocker is resolved,
+// not current behavior.
 
 namespace {
 
-struct StatusDecode {
+// LIVE: 1000-wide per class, no instance sub-bands (every real status is
+// implicitly "instance 1").
+struct LiveStatusDecode {
+  bool physics;
+  int class_index; // 0-25, physics only
+  int low;         // status % 1000: 1 = stable, 2 = decay
+};
+
+LiveStatusDecode decodeLiveStatus(int status) {
+  if (status < 10000)
+    return {false, -1, status % 1000};
+  return {true, (status - 10000) / 1000, status % 1000};
+}
+
+int streamOf(int status) { return status / 1000; }
+int classIndexOfStream(int stream) { return stream - 10; }
+
+// DORMANT (rewrite_status.py, not live): 10000-wide per class, 1000-wide
+// instance sub-bands.
+struct DormantStatusDecode {
   bool physics;
   int class_index; // 0-25, physics only
   int instance;    // 1-based same-class pile-up instance, physics only
   int low;         // status % 1000: 1 = stable, 2 = decay
 };
 
-StatusDecode decodeStatus(int status) {
+DormantStatusDecode decodeDormantStatus(int status) {
   if (status < 10000)
     return {false, -1, 0, status % 1000};
   return {true, (status - 10000) / 10000, (status % 10000) / 1000 + 1, status % 1000};
 }
 
-int streamOf(int status) { return status / 1000; }
-int classIndexOfStream(int stream) { return (stream - 10) / 10; }
+int dormantClassIndexOfStream(int stream) { return (stream - 10) / 10; }
 
 } // namespace
 
-TEST(StatusDecode, ClassBands) {
-  EXPECT_FALSE(decodeStatus(1).physics) << "Native status 1 is not a physics-class code";
-  EXPECT_FALSE(decodeStatus(2001).physics) << "Machine background (2000-6999) is not physics";
-  EXPECT_TRUE(decodeStatus(10001).physics);
-  EXPECT_EQ(decodeStatus(10001).class_index, 0) << "10000-19999 = class 0 (ncdisq1)";
-  EXPECT_EQ(decodeStatus(260001).class_index, 25) << "260000-269999 = class 25 (photoprod)";
-  EXPECT_EQ(decodeStatus(80001).class_index, 7) << "80000-89999 = class 7 (dvcs)";
+TEST(LiveStatusDecode, ClassBands) {
+  EXPECT_FALSE(decodeLiveStatus(1).physics) << "Native status 1 is not a physics-class code";
+  EXPECT_FALSE(decodeLiveStatus(2001).physics) << "Machine background (2000-6999) is not physics";
+  EXPECT_TRUE(decodeLiveStatus(10001).physics);
+  EXPECT_EQ(decodeLiveStatus(10001).class_index, 0) << "10000-10999 = class 0 (ncdisq1)";
+  EXPECT_EQ(decodeLiveStatus(35001).class_index, 25) << "35000-35999 = class 25 (photoprod)";
+  EXPECT_EQ(decodeLiveStatus(17001).class_index, 7) << "17000-17999 = class 7 (dvcs)";
+  EXPECT_EQ(decodeLiveStatus(10001).low, 1) << "base+1 = stable";
+  EXPECT_EQ(decodeLiveStatus(10002).low, 2) << "base+2 = decay";
 }
 
-TEST(StatusDecode, InstanceSubBands) {
-  EXPECT_EQ(decodeStatus(10001).instance, 1);
-  EXPECT_EQ(decodeStatus(10001).low, 1) << "base+1 = instance 1, stable";
-  EXPECT_EQ(decodeStatus(10002).low, 2) << "base+2 = instance 1, decay";
-  EXPECT_EQ(decodeStatus(11001).instance, 2) << "base+1001 = instance 2, stable";
-  EXPECT_EQ(decodeStatus(11001).class_index, 0) << "Instance shift stays inside the class band";
-  EXPECT_EQ(decodeStatus(12002).instance, 3);
-  EXPECT_EQ(decodeStatus(12002).low, 2) << "base+2002 = instance 3, decay";
+// stream -> class_index for every class, the exact quantity the
+// trigger_classes_mask bit and the trigger_classes stream decode both use.
+// The extra "/10" regression this guards against silently collapsed
+// classes 0-9/10-19/20-25 into three buckets in EventBuilder_factory.h.
+TEST(LiveStatusDecode, StreamToClassIndexForEveryClass) {
+  for (int cls = 0; cls < 26; ++cls) {
+    const int status = 10000 + cls * 1000 + 1;
+    EXPECT_EQ(classIndexOfStream(streamOf(status)), cls) << "status " << status;
+  }
+}
+
+TEST(DormantStatusDecode, ClassBands) {
+  EXPECT_FALSE(decodeDormantStatus(1).physics) << "Native status 1 is not a physics-class code";
+  EXPECT_FALSE(decodeDormantStatus(2001).physics) << "Machine background (2000-6999) is not physics";
+  EXPECT_TRUE(decodeDormantStatus(10001).physics);
+  EXPECT_EQ(decodeDormantStatus(10001).class_index, 0) << "10000-19999 = class 0 (ncdisq1)";
+  EXPECT_EQ(decodeDormantStatus(260001).class_index, 25) << "260000-269999 = class 25 (photoprod)";
+  EXPECT_EQ(decodeDormantStatus(80001).class_index, 7) << "80000-89999 = class 7 (dvcs)";
+}
+
+TEST(DormantStatusDecode, InstanceSubBands) {
+  EXPECT_EQ(decodeDormantStatus(10001).instance, 1);
+  EXPECT_EQ(decodeDormantStatus(10001).low, 1) << "base+1 = instance 1, stable";
+  EXPECT_EQ(decodeDormantStatus(10002).low, 2) << "base+2 = instance 1, decay";
+  EXPECT_EQ(decodeDormantStatus(11001).instance, 2) << "base+1001 = instance 2, stable";
+  EXPECT_EQ(decodeDormantStatus(11001).class_index, 0) << "Instance shift stays inside the class band";
+  EXPECT_EQ(decodeDormantStatus(12002).instance, 3);
+  EXPECT_EQ(decodeDormantStatus(12002).low, 2) << "base+2002 = instance 3, decay";
 }
 
 // stream -> class_index must hold for EVERY instance sub-band of every
-// class: the trigger_classes_mask bit and the trigger_classes stream
-// decode both rely on this.
-TEST(StatusDecode, StreamToClassIndexForEveryInstance) {
+// class, IF the dormant scheme ever goes live.
+TEST(DormantStatusDecode, StreamToClassIndexForEveryInstance) {
   for (int cls = 0; cls < 26; ++cls) {
     const int base = 10000 + cls * 10000;
     for (int inst = 1; inst <= 10; ++inst) {
       const int status = base + (inst - 1) * 1000 + 1;
-      EXPECT_EQ(classIndexOfStream(streamOf(status)), cls)
+      EXPECT_EQ(dormantClassIndexOfStream(streamOf(status)), cls)
           << "status " << status << " (class " << cls << ", instance " << inst << ")";
     }
   }
@@ -653,9 +707,12 @@ TEST(CountFlag, ZeroCollisionsMeansFake) {
 }
 
 // weight = generatorStatus + slot*1e6 must round-trip exactly in float32.
-// The exact-integer ceiling of float is 2^24 = 16,777,216: with the max
-// status 269999, slots 0-16 stay exact and slot 17 is the first to break —
-// this bound backs the assert(slot < 16) at both encode sites.
+// The exact-integer ceiling of float is 2^24 = 16,777,216: tested against
+// 269999, the DORMANT wide scheme's max (see the StatusDecode tests above)
+// rather than the LIVE scheme's 35999, so the bound stays valid either way
+// and does not need revisiting if the dormant scheme goes live. Slots 0-16
+// stay exact and slot 17 is the first to break — this bound backs the
+// assert(slot < 16) at both encode sites.
 TEST(SlotPacking, Float32ExactThroughSlot16) {
   const int max_status = 269999;
   for (int slot = 0; slot <= 16; ++slot) {

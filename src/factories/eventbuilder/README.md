@@ -56,21 +56,26 @@ The physics content is bit-identical across noise levels by construction.
 |---|---|
 | < 2000 | native codes and Geant4 secondaries (secondaries do NOT inherit a class band) |
 | 2000–6999 | machine background, 1000-wide per source: 2000 SynRad, 3000 e-beam-gas, 4000 Coulomb, 5000 Touschek, 6000 p-beam-gas |
-| >= 10000 | physics classes, 10000-wide per class: `base = 10000 + class_index*10000` |
+| >= 10000 | physics classes, **1000-wide per class** (LIVE): `base = 10000 + class_index*1000`, max 35999 |
 
 Class order (index 0–25): ncdisq1, ncdisq10, ncdisq100, ncdisq1000,
 ccdisq100, ccdisq1000, ddis, dvcs, ddvcs, dvmp, dempq3to10, dempq10to20,
 dempq20to35, tcs, jpsi, jpsiphoto, urho, cohrho, upi0, upsilon, mesonsf,
 cohphi, rho, spectroscopy, omega, photoprod.
 
-Inside a class band, same-class pile-up instances use 1000-wide sub-bands:
-instance n stable = `base + (n-1)*1000 + 1`, decay = `+ 2` (assigned by a
-rewriting step between the merge and npsim; instance 1 is what the merger
-emits directly).
-
-Decode: `class_index = (gs - 10000) // 10000`,
-`instance = (gs % 10000) // 1000 + 1`, `stable = gs % 1000 == 1`.
+Decode: `class_index = (gs - 10000) // 1000`, `stable = gs % 1000 == 1`.
 The stable test that covers legacy trees too: `gs == 1 or (gs >= 7000 and gs % 1000 == 1)`.
+
+**Same-class pile-up instance encoding is designed but NOT LIVE.** A wider,
+10000-wide-per-class layout (`base = 10000 + class_index*10000`, instance n
+stable = `base + (n-1)*1000 + 1`, decay = `+2`) exists in the production
+repo's `rewrite_status.py`, meant to run between the SBM merge and npsim.
+It unconditionally self-disables today because SBM writes its merge as
+`.hepmc3.tree.root` (ROOT format), which the rewriter cannot parse — so it
+never actually runs, and every real status is instance 1 of the 1000-wide
+layout above (confirmed against `signal.sh`'s own `_CLASS_STATUS` base
+values, which are 1000 apart, not 10000). Do not decode a live status as if
+instance sub-bands are populated.
 
 ## Pile-up — how it is interpreted
 
@@ -84,8 +89,7 @@ A "collision" is one injected physics event. Collisions are deduplicated by
   had a collision in the window.
 - `trigger_classes` (weights[25+], on by default) = count, then
   (time, stream) pairs. `stream = generatorStatus / 1000` of the collision
-  base: 0 = native primary, >= 10 = physics with
-  `class_index = (stream - 10) / 10` (valid for every instance sub-band).
+  base: 0 = native primary, >= 10 = physics with `class_index = stream - 10`.
 - Per-hit collision slot: the unfolder bakes
   `weight = generatorStatus + slot*1e6` into truth links, where slot is the
   nearest `trigger_classes` entry to the hit's own particle time. slot must
@@ -235,7 +239,10 @@ downstream tools must follow along. `podio:watch_settle_seconds` (default
    must stay last.
 3. `eventNumber = frame*1000 + candidate` is the universal join key.
    The unfolder warns loudly at 1000 candidates/frame.
-4. slot*1e6 packing requires slot < 16 and max generatorStatus <= 269999.
+4. slot*1e6 packing requires slot < 16 and max generatorStatus <= 269999
+   (float32 exact-integer bound, 2^24). Live max is 35999 (1000-wide
+   scheme); 269999 is the dormant wide scheme's max, kept as the bound
+   here so it does not need revisiting if that scheme goes live.
 5. Consumers that hardcode weights indices: `EventBuilderTest.cpp` and
    `EventPrefilter_factory.h` (`build_cand_info`) in this repo, plus the
    external analysis/reporting tooling. A renumber must touch all of them

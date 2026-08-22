@@ -784,7 +784,7 @@ That comment is the ground truth:
 | 22 | winning grid: 1 = plain, 2 = half-cell staggered |
 | 23 | S_empirical: significance of cmax against this frame's own sideband distribution (the empirical_band method), always stored regardless of the active null model |
 | 24 | fano: variance/mean of the sideband window counts. 1 = Poisson-like |
-| 25+ | trigger_classes (on by default via store_coincident_list): index 25 = N, the coincident-collision count (equals flag), then N (time, stream) pairs at 26+2k / 27+2k. stream = generatorStatus/1000 of the collision's base status: 0 = native primary, >= 10 = a physics class (class_index = (stream-10)/10) |
+| 25+ | trigger_classes (on by default via store_coincident_list): index 25 = N, the coincident-collision count (equals flag), then N (time, stream) pairs at 26+2k / 27+2k. stream = generatorStatus/1000 of the collision's base status: 0 = native primary, >= 10 = a physics class (class_index = stream-10) |
 
 Frame-constant configuration lives in a separate **`EventBuilderFrameInfo`**
 collection (same `edm4hep::EventHeader` type), one entry per frame, copied
