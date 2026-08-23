@@ -1,6 +1,6 @@
 # `eventbuilder` — software event building for the ePIC streaming readout
 
-> **Start here:** `src/factories/eventbuilder/AGENTS.md` is the compact,
+> **Start here:** `src/factories/eventbuilder/README.md` is the compact,
 > authoritative structural guide (file map, status bands, pile-up semantics,
 > weights tables, invariants). This README holds the deep derivations and
 > measurements behind it.

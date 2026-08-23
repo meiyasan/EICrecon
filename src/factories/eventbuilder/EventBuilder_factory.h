@@ -1245,7 +1245,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
     // Which class(es) coincided (trigger_classes_mask, weights[17]): bit N
     // = class_index N (0-25), where class_index = stream - 10 for
     // physics streams. A native primary (stream 0) sets no bit. Decode a
-    // bit to a class name with the class table in AGENTS.md.
+    // bit to a class name with the class table in TruthClassLabels.h.
     std::vector<uint32_t> classes_mask(pending.size(), 0);
     // Full (time, stream) pair list (trigger_classes, weights[25+]); see
     // store_coincident_list. Read through the ParameterRef accessor, not

@@ -3,7 +3,7 @@
 This file is the compact map of the eventbuilder. It states what each part
 does, the data conventions, and the rules that must not break. The long
 README (`../../global/eventbuilder/README.md`) holds derivations and
-measurements. When the two disagree, fix the README.
+measurements. When the two disagree, fix that one, not this one.
 
 ## What the eventbuilder does
 
