@@ -213,7 +213,13 @@ struct TimeAlignment_factory
       slow_frame.resize(n_slow);
 
     for (size_t i = 0; i < n_out; ++i) {
-      const auto* in  = m_in().at(i);
+      // Bounds-guarded, like m_offsets() just below: a variadic input list can
+      // be SHORTER than the output list when a wired collection has no
+      // producer (EcalLumiSpec has no plugin yet), and an unguarded .at(i)
+      // then throws std::out_of_range out of the factory. The nullptr branch
+      // below already handles "no input for this slot", so treat a missing
+      // entry the same way instead of aborting the job.
+      const auto* in  = (i < m_in().size()) ? m_in().at(i) : nullptr;
       auto&       out = m_out().at(i);
 
       const double off = (i < m_offsets().size()) ? double(m_offsets()[i]) : 0.0;
