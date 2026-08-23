@@ -1,0 +1,952 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+// Copyright (C) 2026, Marco Meyer-Conde (ARL, Tokyo City University)
+//                     Takuya Kumaoka (QNSI, The University of Tokyo)
+// Subject to the terms in the LICENSE file found in the top-level directory.
+
+#include "PdfReport.h"
+
+#include <cstdlib>
+#include <ctime>
+#include <sstream>
+#include <vector>
+
+#include <JANA/JVersion.h>
+#include <TCanvas.h>
+#include <TF1.h>
+#include <TH1.h>
+#include <TH1D.h>
+#include <iomanip>
+#include <cmath>
+#include <algorithm>
+#include <TH2D.h>
+#include <TLine.h>
+#include <TBox.h>
+#include <TPad.h>
+#include <TLatex.h>
+#include <TROOT.h>
+#include <TStyle.h>
+#include <edm4eic/EDM4eicVersion.h>
+#include <podio/podioVersion.h>
+
+#include "ResolutionHists.h"
+
+namespace eicrecon::eb {
+
+namespace {
+
+// Portrait, in the proportions of the octofit reports (399 x 567 pt).
+constexpr int kCanvasW = 850;
+constexpr int kCanvasH = 1208;
+// Font ids taken from octofit's Report::Style (tools/xfitter-report.cc:302,
+// Report/ExperimentComparisonPage.cc:574): 132 = Times-Roman, 32 = the bold
+// face its headings use, 82 = Courier for table cells.
+constexpr int kFont     = 132;
+constexpr int kFontBold = 32;
+constexpr int kMono     = 82;
+
+/// Draw pre-formatted lines top-down. Returns nothing; callers paginate.
+void drawLines(const std::vector<std::string>& lines, double x0, double y0, double dy,
+               double size, int font = kMono) {
+  TLatex t;
+  t.SetNDC();
+  t.SetTextFont(font);
+  t.SetTextSize(size);
+  double y = y0;
+  for (const auto& l : lines) {
+    // TLatex treats '#' and '^' as markup; the table has neither, but a
+    // detector name could. SetTextFont(82) still parses them, so draw with
+    // TLatex only after neutralising the one character we actually emit.
+    std::string safe = l;
+    for (auto& c : safe)
+      if (c == '#')
+        c = '+';
+    t.DrawLatex(x0, y, safe.c_str());
+    y -= dy;
+  }
+}
+
+
+/// Gaussian sigma of the CORE of a distribution: fit within +-2 RMS of the
+/// peak, not the full range. For the time residuals this matters -- the tails
+/// are the coincidence gate, flat out to +-dt, and a full-range fit would
+/// report the gate width instead of the detector.
+/// Fit the double-Gaussian and leave the function attached to the histogram
+/// so it can be drawn. Returns nullptr if the fit did not produce a usable
+/// core. coreSigma() below is the measurement-only wrapper.
+TF1* fitCore(TH1* h, double& sigma, double& err) {
+  if (h == nullptr || h->GetEntries() < 200)
+    return nullptr;
+  const double axis_lo   = h->GetXaxis()->GetXmin();
+  const double axis_hi   = h->GetXaxis()->GetXmax();
+  const double half_span = 0.5 * (axis_hi - axis_lo);
+  const double bin_w     = h->GetBinWidth(1);
+  const double rms       = h->GetRMS();
+  const double peak      = h->GetBinContent(h->GetMaximumBin());
+  const double peak_x    = h->GetBinCenter(h->GetMaximumBin());
+  if (!(rms > 0) || !(peak > 0))
+    return nullptr;
+
+  auto* f = new TF1("core", "gaus(0)+gaus(3)", axis_lo, axis_hi);
+  f->SetParameters(peak, peak_x, std::max(2.0 * bin_w, 0.2 * rms), 0.2 * peak, peak_x, rms);
+  f->SetParLimits(0, 0.0, 10.0 * peak);
+  f->SetParLimits(1, peak_x - rms, peak_x + rms);
+  f->SetParLimits(2, bin_w, 0.8 * half_span);
+  f->SetParLimits(3, 0.0, 10.0 * peak);
+  f->SetParLimits(4, axis_lo, axis_hi);
+  f->SetParLimits(5, bin_w, 2.0 * half_span);
+  if (h->Fit(f, "QNR") != 0) {
+    delete f;
+    return nullptr;
+  }
+  const double s1            = std::fabs(f->GetParameter(2));
+  const double s2            = std::fabs(f->GetParameter(5));
+  const bool   first_is_core = (s1 <= s2);
+  sigma                      = first_is_core ? s1 : s2;
+  err                        = first_is_core ? f->GetParError(2) : f->GetParError(5);
+  const double amp           = first_is_core ? f->GetParameter(0) : f->GetParameter(3);
+  if (sigma <= 1.5 * bin_w || sigma >= 0.5 * half_span || amp < 0.05 * peak) {
+    delete f;
+    return nullptr;
+  }
+  return f;
+}
+
+bool coreSigma(TH1* h, double& sigma, double& err) {
+  TF1* f = fitCore(h, sigma, err);
+  if (f == nullptr)
+    return false;
+  delete f;
+  return true;
+}
+
+/// 68% containment. The position residuals are |rec - sim| and the calo
+/// angular residual is dR: both are positive-definite and not Gaussian, so a
+/// sigma is meaningless and the quantile is the honest summary.
+bool quantile68(TH1* h, double& q) {
+  if (h == nullptr || h->GetEntries() < 20)
+    return false;
+  double prob = 0.68, out = 0.0;
+  h->GetQuantiles(1, &out, &prob);
+  q = out;
+  return true;
+}
+
+std::string fmt(double v, int prec, bool ok) {
+  if (!ok)
+    return "     --";
+  std::ostringstream os;
+  os << std::fixed << std::setprecision(prec) << v;
+  return os.str();
+}
+
+/// The unit out of an axis title's trailing "[...]"; empty if dimensionless.
+/// Reading it off the histogram is what lets one column hold two units without
+/// lying: the tracker `position` cells are microns and the calo ones radians,
+/// because those axes say so.
+std::string axisUnit(const TH1* h) {
+  if (h == nullptr)
+    return {};
+  const std::string at = h->GetXaxis()->GetTitle();
+  const auto        ob = at.rfind('[');
+  const auto        cb = at.rfind(']');
+  if (ob == std::string::npos || cb == std::string::npos || cb <= ob + 1)
+    return {};
+  return at.substr(ob + 1, cb - ob - 1);
+}
+
+/// "value unit", with the precision matched to the magnitude so 265 microns
+/// does not print as 265.0000 and 0.445 rad does not print as 0.
+std::string fmtUnit(double v, bool ok, const std::string& unit) {
+  if (!ok)
+    return "--";
+  const double a    = std::fabs(v);
+  const int    prec = (a >= 100.0) ? 0 : (a >= 10.0 ? 1 : (a >= 1.0 ? 2 : 3));
+  std::ostringstream os;
+  os << std::fixed << std::setprecision(prec) << v;
+  if (!unit.empty())
+    os << " " << unit;
+  return os.str();
+}
+
+/// A fraction as a percentage. The energy residual is (E_rec - E_MC)/E_MC, so
+/// "-85.8%" says the reconstructed energy is 86% below truth -- far easier to
+/// read at a glance than "-0.858".
+std::string fmtPercent(double v, bool ok) {
+  if (!ok)
+    return "--";
+  std::ostringstream os;
+  os << std::fixed << std::setprecision(1) << 100.0 * v << "%";
+  return os.str();
+}
+
+
+/// One table cell: text, plus the colour that carries its meaning.
+struct Cell {
+  std::string text;
+  Color_t     color = kBlack;
+};
+
+/// Column geometry: NDC x, and TLatex alignment (11 = left, 31 = right).
+struct Col {
+  double x;
+  short  align;
+};
+
+/// Draw a table the way the octofit reports do: header row, a rule spanning
+/// the columns, then rows with per-cell colour. Drawing cell by cell rather
+/// than one monospace string per line is what makes both the alignment and
+/// the colouring possible.
+/// octofit ParameterTablePage metrics: rows start at yTop, are baseDY apart,
+/// and the body is drawn at 0.024. When there are more rows than fit, the row
+/// height shrinks and the text shrinks with it by the same factor -- rather
+/// than rows being silently dropped off the bottom.
+constexpr double kTableYTop  = 0.818;
+/// Table top on the resolution page only, which needs the space above for the
+/// legend explaining what each column measures.
+constexpr double kResTableYTop = 0.780;
+constexpr double kTableYBot  = 0.05;
+constexpr double kTableBaseDY = 0.032;
+constexpr double kTableTextSize = 0.024;
+
+/// Largest text size at which `ncols` columns of at most `maxchars` monospace
+/// characters still fit inside `width` (NDC). octofit's 0.024 body size is
+/// sized for its 8 narrow columns; a 10-column eff/pur table needs less, and
+/// hard-coding 0.024 there just overlaps the columns.
+double fitTextSize(int ncols, int maxchars, double width, double cap = kTableTextSize) {
+  if (ncols <= 0 || maxchars <= 0)
+    return cap;
+  const double pitch = width / ncols;
+  return std::min(cap, pitch / (0.62 * maxchars));
+}
+
+void drawTable(const std::vector<Col>& cols, const std::vector<std::string>& header,
+               const std::vector<std::vector<Cell>>& rows, double y0, double dy, double size,
+               double rule_x0, double rule_x1) {
+  TLatex t;
+  t.SetNDC();
+  t.SetTextFont(kMono);
+  t.SetTextSize(size);
+
+  double y = y0;
+  t.SetTextColor(kBlack);
+  for (std::size_t i = 0; i < header.size() && i < cols.size(); ++i) {
+    t.SetTextAlign(cols[i].align);
+    t.DrawLatex(cols[i].x, y, header[i].c_str());
+  }
+  y -= 0.45 * dy;
+  TLine rule;
+  rule.SetNDC();
+  rule.DrawLineNDC(rule_x0, y, rule_x1, y);
+  y -= 0.75 * dy;
+
+  for (const auto& row : rows) {
+    if (row.empty()) { // blank spacer row
+      y -= 0.5 * dy;
+      continue;
+    }
+    for (std::size_t i = 0; i < row.size() && i < cols.size(); ++i) {
+      t.SetTextAlign(cols[i].align);
+      t.SetTextColor(row[i].color);
+      t.DrawLatex(cols[i].x, y, row[i].text.c_str());
+    }
+    y -= dy;
+  }
+  t.SetTextColor(kBlack);
+}
+
+/// Bold serif centred page title with an optional subtitle and a rule under
+/// it -- the header every c6 page carries.
+double pageTitle(const std::string& title, const std::string& subtitle = "",
+                 double y = 0.90) {
+  TLatex t;
+  t.SetNDC();
+  t.SetTextAlign(22);
+  t.SetTextFont(kFontBold);
+  t.SetTextSize(0.044);
+  t.DrawLatex(0.5, y, title.c_str());
+  double next = y - 0.040;
+  if (!subtitle.empty()) {
+    t.SetTextFont(132); // Times-Roman
+    t.SetTextSize(0.022);
+    t.DrawLatex(0.5, next, subtitle.c_str());
+    next -= 0.030;
+  }
+  TLine rule;
+  rule.SetNDC();
+  rule.DrawLineNDC(0.13, next, 0.87, next);
+  return next - 0.045;
+}
+
+/// Two-column label/value block in serif, as on c6's reference-set page.
+void drawKeyValue(const std::vector<std::pair<std::string, std::string>>& kv, double y0,
+                  double dy = 0.034, double size = 0.026, double x_label = 0.20,
+                  double x_value = 0.46) {
+  TLatex t;
+  t.SetNDC();
+  t.SetTextFont(132);
+  t.SetTextSize(size);
+  double y = y0;
+  for (const auto& [k, v] : kv) {
+    if (k.empty() && v.empty()) {
+      y -= 0.5 * dy;
+      continue;
+    }
+    t.SetTextAlign(11);
+    t.DrawLatex(x_label, y, k.c_str());
+    t.DrawLatex(x_value, y, v.c_str());
+    y -= dy;
+  }
+}
+
+/// Project the class axis away and rebin toward ~15 entries per bin. BOTH the
+/// summary table and the plots go through this: fitting a raw 2000-bin
+/// projection in one place and a rebinned one in the other made the same
+/// quantity read 39.4 ps on its plot and "--" in the table.
+TH1D* projection(TH2D* h, const std::string& suffix) {
+  if (h == nullptr)
+    return nullptr;
+  auto* px = h->ProjectionX((std::string(h->GetName()) + suffix).c_str());
+  if (px == nullptr)
+    return nullptr;
+  // Rebin until the bins carry enough entries to show a shape -- but judge
+  // that over the region that will actually be DRAWN (the central 99%, the
+  // same clip the plotting code applies), not over the whole booked axis.
+  //
+  // The booked ranges are deliberately generous, so a residual that lives
+  // inside a few hundred microns of a +-6 mm axis leaves ~95% of the bins
+  // empty. Averaging over that emptiness says "0.3 entries/bin" and rebins
+  // away a factor of eight, and what survives in the zoomed view is half a
+  // dozen steps -- a pixelated core produced entirely by the empty tails
+  // beside it. Measuring occupancy where the data is decouples the binning
+  // from how wide the axis happens to be.
+  const double total = px->Integral();
+  auto core_bins = [&px]() {
+    double       q[2]     = {0.0, 0.0};
+    const double probs[2] = {0.005, 0.995};
+    px->GetQuantiles(2, q, probs);
+    const int b0 = px->FindBin(q[0]);
+    const int b1 = px->FindBin(q[1]);
+    return std::max(1, b1 - b0 + 1);
+  };
+  while (px->GetNbinsX() > 50 && px->GetNbinsX() % 2 == 0 &&
+         total / static_cast<double>(core_bins()) < 15.0)
+    px->Rebin(2);
+  return px;
+}
+
+std::vector<std::string> split(const std::string& s) {
+  std::vector<std::string> out;
+  std::istringstream is(s);
+  std::string         line;
+  while (std::getline(is, line))
+    out.push_back(line);
+  return out;
+}
+
+std::string nowString() {
+  const std::time_t t = std::time(nullptr);
+  char buf[64];
+  std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", std::localtime(&t));
+  return buf;
+}
+
+std::string envOr(const char* k, const char* fallback) {
+  const char* v = std::getenv(k);
+  return (v != nullptr && *v != '\0') ? v : fallback;
+}
+
+} // namespace
+
+bool writePdfReport(const std::string& path, const std::string& table,
+                    const std::map<std::string, TH2D*>& hists, const ReportContext& ctx) {
+  const bool batch_before = gROOT->IsBatch();
+  gROOT->SetBatch(kTRUE);
+  // octofit Report::Style::Apply(), same values.
+  gStyle->SetOptStat(0);
+  gStyle->SetOptTitle(1);
+  gStyle->SetTitleAlign(23);
+  gStyle->SetTitleX(0.5);
+  gStyle->SetTitleBorderSize(0);
+  gStyle->SetTitleFillColor(0);
+  gStyle->SetTitleFont(kFont, "T");
+  gStyle->SetTitleSize(0.05, "T");
+  gStyle->SetLabelFont(kFont, "XYZ");
+  gStyle->SetTitleFont(kFont, "XYZ");
+  gStyle->SetTextFont(kFont);
+  gStyle->SetStatFont(kFont);
+  gStyle->SetLegendFont(kFont);
+  gStyle->SetLabelSize(0.045, "XYZ");
+  gStyle->SetTitleSize(0.050, "XYZ");
+  gStyle->SetTitleOffset(1.1, "X");
+  gStyle->SetTitleOffset(1.3, "Y");
+  gStyle->SetPadLeftMargin(0.14);
+  gStyle->SetPadRightMargin(0.06);
+  gStyle->SetPadBottomMargin(0.12);
+  gStyle->SetPadTopMargin(0.10);
+  gStyle->SetEndErrorSize(3);
+  gStyle->SetFrameLineWidth(1);
+  gStyle->SetTickLength(0.025, "XYZ");
+  gStyle->SetGridStyle(3);
+  gStyle->SetGridColor(kGray + 1);
+  gStyle->SetPalette(kBird);
+
+  TCanvas c("eb_report", "report", kCanvasW, kCanvasH);
+
+  // ---- page 1: title -------------------------------------------------------
+  c.Clear();
+  {
+    TLatex t;
+    t.SetNDC();
+    t.SetTextAlign(22);
+    t.SetTextFont(kFontBold);
+    t.SetTextSize(0.055);
+    t.DrawLatex(0.5, 0.80, "Event Builder Trigger Benchmark");
+    t.SetTextFont(kFont);
+    t.SetTextSize(0.034);
+    t.DrawLatex(0.5, 0.745, ("Mode: " + ctx.mode).c_str());
+    if (ctx.overall_eff >= 0.0) {
+      std::ostringstream os;
+      os << std::fixed << std::setprecision(1) << "Efficiency = " << 100.0 * ctx.overall_eff
+         << "%   Purity = " << 100.0 * ctx.overall_pur << "%";
+      t.SetTextSize(0.030);
+      t.DrawLatex(0.5, 0.705, os.str().c_str());
+    }
+    TLine rule;
+    rule.SetNDC();
+    rule.DrawLineNDC(0.13, 0.675, 0.87, 0.675);
+
+    std::vector<std::pair<std::string, std::string>> kv;
+    kv.emplace_back("Frames:", std::to_string(ctx.frames));
+    {
+      std::ostringstream o;
+      o << ctx.candidates << "   (real " << ctx.real << ", fake " << ctx.fake << ")";
+      kv.emplace_back("Candidates:", o.str());
+    }
+    kv.emplace_back("Classes seen:", std::to_string(ctx.classes.size()));
+    kv.emplace_back("", "");
+    // Long dataset paths wrap instead of running off the page.
+    const std::string& in = ctx.input_file;
+    bool first = true;
+    for (std::size_t i = 0; i < in.size(); i += 46) {
+      kv.emplace_back(first ? "Input:" : "", in.substr(i, 46));
+      first = false;
+    }
+    drawKeyValue(kv, 0.615);
+
+    t.SetTextFont(kFont);
+    t.SetTextSize(0.020);
+    t.DrawLatex(0.5, 0.10,
+                ("Generated by EICrecon eventbuilder_trigger: " + nowString()).c_str());
+  }
+  c.Print((path + "(").c_str(), "pdf");
+
+  // ---- page 2: software provenance ----------------------------------------
+  c.Clear();
+  {
+    const double y0 = pageTitle("Software and configuration",
+                                "versions this report was produced with");
+    std::vector<std::pair<std::string, std::string>> kv;
+    kv.emplace_back("ROOT:", gROOT->GetVersion());
+    kv.emplace_back("JANA2:", JVersion::GetVersion());
+    {
+      std::ostringstream os;
+      os << podio::version::build_version;
+      kv.emplace_back("podio:", os.str());
+    }
+    {
+      std::ostringstream os;
+      os << EDM4EIC_VERSION_MAJOR << "." << EDM4EIC_VERSION_MINOR << "."
+         << EDM4EIC_VERSION_PATCH;
+      kv.emplace_back("EDM4eic:", os.str());
+    }
+    std::string compiler_str =
+#if defined(__clang__)
+        "clang " __clang_version__
+#elif defined(__GNUC__)
+        "gcc " __VERSION__
+#else
+        "unknown"
+#endif
+        ;
+    if (compiler_str.size() > 42)
+      compiler_str = compiler_str.substr(0, 42) + "...";
+    kv.emplace_back("Compiler:", compiler_str);
+    kv.emplace_back("Built:", std::string(__DATE__) + " " + __TIME__);
+    kv.emplace_back("", "");
+    kv.emplace_back("Detector:", envOr("DETECTOR", "(unset)"));
+    kv.emplace_back("Config:", ctx.detector_config.empty()
+                                   ? envOr("DETECTOR_CONFIG", "(unset)")
+                                   : ctx.detector_config);
+    kv.emplace_back("", "");
+    {
+      std::ostringstream os;
+      os << std::fixed << std::setprecision(1) << ctx.nsigma_window;
+      kv.emplace_back("nsigma_window:", os.str() + "   (folded into weights[T0SIGMA])");
+    }
+    kv.emplace_back("Mode:", ctx.mode);
+    drawKeyValue(kv, y0);
+  }
+  c.Print(path.c_str(), "pdf");
+
+  // ---- per-class efficiency, as a bar chart -------------------------------
+  // Traffic-light coded and annotated with the raw counts, so a low bar can be
+  // told apart from a bar that is low because almost nothing was injected.
+  if (!ctx.classes.empty()) {
+    c.Clear();
+    c.SetLeftMargin(0.30);
+    c.SetRightMargin(0.06);
+    const int    n   = static_cast<int>(ctx.classes.size());
+    const double x0  = 0.0;
+    const double x1  = 145.0; // headroom for the annotation past 100%
+    // Annotations sit in one column just right of the 100% reference line
+    // rather than chasing each bar's end. Ragged labels make the values hard
+    // to compare down the page, and a short bar pushes its own label into the
+    // middle of the plot where it reads as data.
+    const double x_ann = 101.5;
+    TH2D frame_h("eff_frame", ";efficiency [%];", 100, x0, x1, n, -0.5, n - 0.5);
+    frame_h.SetStats(0);
+    for (int i = 0; i < n; ++i)
+      frame_h.GetYaxis()->SetBinLabel(i + 1, ctx.classes[i].name.c_str());
+    frame_h.GetYaxis()->SetLabelSize(std::min(0.022, 0.65 / std::max(n, 1)));
+    frame_h.GetYaxis()->SetLabelFont(kFont);
+    frame_h.GetXaxis()->SetLabelSize(0.020);
+    frame_h.GetXaxis()->SetLabelFont(kFont);
+    frame_h.GetXaxis()->SetTitleSize(0.026);
+    frame_h.GetXaxis()->SetTitleFont(kFont);
+    frame_h.GetXaxis()->SetTitleOffset(1.3);
+    c.SetGridx(); // dotted verticals, as octofit draws behind its chi2 bars
+    frame_h.Draw();
+
+    TBox   box;
+    TLatex ann;
+    ann.SetTextFont(kFont);
+    ann.SetTextSize(std::min(0.020, 0.60 / std::max(n, 1)));
+    ann.SetTextAlign(12);
+    for (int i = 0; i < n; ++i) {
+      const auto&  ce  = ctx.classes[i];
+      const double pct = 100.0 * ce.eff;
+      // green >= 90%, orange >= 60%, red below: the same three-band reading as
+      // the octofit chi2/N bars.
+      box.SetFillColor(pct >= 90.0 ? kGreen + 1 : (pct >= 60.0 ? kOrange + 7 : kRed + 1));
+      box.DrawBox(0.0, i - 0.28, pct, i + 0.28);
+      std::ostringstream os;
+      os << std::fixed << std::setprecision(1) << pct << "  (" << ce.found << "/" << ce.injected
+         << ")";
+      ann.DrawLatex(x_ann, i, os.str().c_str());
+    }
+    TLine ref;
+    ref.SetLineStyle(2);
+    ref.DrawLine(100.0, -0.5, 100.0, n - 0.5);
+    c.Print(path.c_str(), "pdf");
+    c.SetGridx(0);
+    c.SetLeftMargin(0.10);
+    c.SetRightMargin(0.10);
+  }
+
+  // ---- fitted resolution summary, one row per subsystem ------------------
+  c.Clear();
+  {
+    TLatex h;
+    h.SetNDC();
+    h.SetTextAlign(22);
+    h.SetTextFont(132);
+    h.SetTextSize(0.044);
+    h.DrawLatex(0.5, 0.930, "Fitted resolution by subsystem");
+    h.SetTextFont(kFont);
+    // Spell the columns out. "time sigma" and "space 68%" assumed the reader
+    // already knew which width, of what, in what unit -- and the position
+    // column silently changes both quantity and unit between trackers and
+    // calorimeters, which no header can carry on its own.
+    h.SetTextSize(0.017);
+    h.DrawLatex(0.5, 0.893, "residuals measured against the TRUE collision time and position");
+    h.SetTextColor(static_cast<Color_t>(kGray + 3));
+    h.SetTextSize(0.015);
+    h.DrawLatex(0.5, 0.868,
+                "time = Gaussian width of the residual core, TOF in ps and the gaseous and "
+                "silicon detectors in ns");
+    h.DrawLatex(0.5, 0.848,
+                "position = 68% of hits land within this of truth: trackers in #mum, "
+                "calorimeters in rad (the cluster-to-particle opening angle)");
+    h.DrawLatex(0.5, 0.828,
+                "energy = Gaussian width of (E_{rec} - E_{MC}) / E_{MC},  and E bias its mean "
+                "(negative = reconstructed energy low)");
+    h.DrawLatex(0.5, 0.810, "-- = the fit did not converge, usually for want of entries");
+    h.SetTextColor(kBlack);
+
+    const std::vector<Col> cols = {{0.09, 11}, {0.42, 31}, {0.56, 31},
+                                   {0.70, 31}, {0.82, 31}, {0.93, 31}};
+    const std::vector<std::string> header = {"Subsystem", "entries", "time",
+                                             "position",  "energy",  "E bias"};
+    std::vector<std::vector<Cell>> rows;
+
+    auto add = [&](const std::string& det, bool calo) {
+      auto grab = [&](const std::string& key) -> TH2D* {
+        auto it = hists.find(key);
+        return (it != hists.end()) ? it->second : nullptr;
+      };
+      TH2D* ht = grab("time_" + det);
+      TH2D* hs = grab("space_" + det);
+      TH2D* he = calo ? grab("energy_" + det) : nullptr;
+      if (ht == nullptr && hs == nullptr && he == nullptr)
+        return;
+
+      double ts = 0, te = 0, sq = 0, es = 0, ee = 0, emean = 0;
+      bool   ok_t = false, ok_s = false, ok_e = false;
+      long   n    = 0;
+      if (ht != nullptr && ht->GetEntries() > 0) {
+        ok_t = coreSigma(projection(ht, "_t_fit"), ts, te);
+        n    = static_cast<long>(ht->GetEntries());
+      }
+      if (hs != nullptr && hs->GetEntries() > 0)
+        ok_s = quantile68(projection(hs, "_s_fit"), sq);
+      if (he != nullptr && he->GetEntries() > 0) {
+        auto* px = projection(he, "_e_fit");
+        ok_e     = coreSigma(px, es, ee);
+        emean    = px->GetMean();
+      }
+      // Green where a fit converged, grey where it did not: a blank cell then
+      // reads as "not resolved" rather than as a missing detector.
+      const auto ok_c   = static_cast<Color_t>(kGreen + 2);
+      const auto none_c = static_cast<Color_t>(kGray + 2);
+      // Thin statistics are the usual reason a fit is blank, so flag the count
+      // itself rather than leaving the reader to guess.
+      const auto n_c = static_cast<Color_t>((n > 0 && n < 500) ? kOrange + 7 : kBlack);
+      // Units come off each histogram's own axis, so a row cannot claim a unit
+      // its histogram does not use.
+      rows.push_back({{det},
+                      {std::to_string(n), n_c},
+                      {fmtUnit(ts, ok_t, axisUnit(ht)), ok_t ? ok_c : none_c},
+                      {fmtUnit(sq, ok_s, axisUnit(hs)), ok_s ? ok_c : none_c},
+                      {fmtPercent(es, ok_e), ok_e ? ok_c : none_c},
+                      {fmtPercent(emean, ok_e), ok_e ? ok_c : none_c}});
+    };
+
+    for (const auto& d : ResolutionHists::trackerNames())
+      add(d, false);
+    rows.push_back({});
+    for (const auto& d : ResolutionHists::caloNames())
+      add(d, true);
+
+    {
+      // Shrink to fit, octofit-style: dY = min(baseDY, available / rows).
+      // Lower than kTableYTop: this page carries a five-line legend above the
+      // table, and the header row has to clear it.
+      const double avail  = kResTableYTop - kTableYBot;
+      const double dY = std::min(kTableBaseDY, avail / std::max<double>(rows.size() + 12, 1));
+      const double sz = std::min(kTableTextSize * (dY / kTableBaseDY),
+                                 fitTextSize(static_cast<int>(cols.size()), 12, 0.88));
+      drawTable(cols, header, rows, kResTableYTop, dY, sz, 0.075, 0.945);
+    }
+
+    // ---- candidate t0: measured spread against the quoted uncertainty ------
+    auto grab = [&](const std::string& k) -> TH2D* {
+      auto it = hists.find(k);
+      return (it != hists.end()) ? it->second : nullptr;
+    };
+    TH2D* hr = grab("t0_residual");
+    if (hr != nullptr && hr->GetEntries() > 0) {
+      double rs = 0, re = 0, ps = 0, pe = 0, mean_sig = 0;
+      const bool ok_r = coreSigma(projection(hr, "_t0r_fit"), rs, re);
+      if (TH2D* hs2 = grab("t0_sigma"); hs2 != nullptr && hs2->GetEntries() > 0)
+        mean_sig = projection(hs2, "_t0s_fit")->GetMean();
+      bool ok_p = false;
+      if (TH2D* hp = grab("t0_pull"); hp != nullptr && hp->GetEntries() > 0)
+        ok_p = coreSigma(projection(hp, "_t0p_fit"), ps, pe);
+
+      // Anchor to the row height actually used above; with octofit's taller
+      // rows a stale constant put this block on top of the table.
+      const double avail_r = kResTableYTop - kTableYBot;
+      const double dY_r    = std::min(kTableBaseDY, avail_r / std::max<double>(rows.size() + 12, 1));
+      const double ybase   = kResTableYTop - dY_r * static_cast<double>(rows.size() + 3);
+      h.SetTextFont(132);
+      h.SetTextAlign(11);
+      h.SetTextSize(0.020);
+      h.DrawLatex(0.09, ybase, "Candidate t0");
+
+      const std::vector<Col>         c2  = {{0.11, 11}, {0.62, 31}, {0.72, 11}};
+      const std::vector<std::string> hd2 = {"", "", ""};
+      std::vector<std::vector<Cell>> r2;
+      // rs / mean_sig are already picoseconds: the t0 histograms are booked
+      // in ps, so no conversion here (there used to be a x1000).
+      r2.push_back({{"measured   sigma(t0 - t_MC)"},
+                    {fmt(rs, 1, ok_r), static_cast<Color_t>(ok_r ? kGreen + 2 : kGray + 2)},
+                    {"ps"}});
+      r2.push_back({{"reported   mean delta_t0 / nsigma"},
+                    {fmt(mean_sig, 1, mean_sig > 0), kBlack},
+                    {"ps"}});
+      // A calibrated uncertainty gives a unit-width pull. Colour says which way
+      // it is wrong without the reader having to remember the convention.
+      const auto pull_c = static_cast<Color_t>(
+          !ok_p ? kGray + 2 : (ps > 1.25 ? kRed + 1 : (ps < 0.8 ? kOrange + 7 : kGreen + 2)));
+      r2.push_back({{"pull       sigma[(t0-t_MC)/delta_t0]"},
+                    {fmt(ps, 3, ok_p), pull_c},
+                    {ok_p ? (ps > 1.25 ? "underestimated" : (ps < 0.8 ? "conservative" : "calibrated"))
+                          : ""}});
+      {
+        std::ostringstream note;
+        note << "weights[T0SIGMA] is a " << std::fixed << std::setprecision(1)
+             << ctx.nsigma_window << "-sigma half-width; divided out above";
+        r2.push_back({});
+        r2.push_back({{note.str(), static_cast<Color_t>(kGray + 2)}});
+      }
+      drawTable(c2, hd2, r2, ybase - 0.030, dY_r, kTableTextSize * (dY_r / kTableBaseDY),
+                0.075, 0.945);
+    }
+  }
+  c.Print(path.c_str(), "pdf");
+
+  // ---- the per-class statistics table --------------------------------------
+  // Rendered as cells, not as dumped monospace lines: only that way do the
+  // columns align and the numbers carry colour.
+  {
+    const auto& header = ctx.table.first;
+    const auto& rows   = ctx.table.second;
+    // Column x positions: class name left-aligned, everything else right.
+    std::vector<Col> cols;
+    cols.push_back({0.050, 11}); // class name, left
+    cols.push_back({0.185, 31});
+    cols.push_back({0.245, 31});
+    for (int i = 0; i < 7; ++i)
+      cols.push_back({0.348 + 0.104 * i, 31});
+
+    constexpr std::size_t kPerPage = 34;
+    std::size_t           page     = 0;
+    for (std::size_t i = 0; i < rows.size(); i += kPerPage, ++page) {
+      c.Clear();
+      TLatex h;
+      h.SetNDC();
+      h.SetTextAlign(22);
+      h.SetTextFont(132);
+      h.SetTextSize(0.044);
+      h.DrawLatex(0.5, 0.930, page == 0 ? "Per-class trigger performance"
+                                        : "Per-class trigger performance (cont.)");
+      h.SetTextFont(kFont);
+      h.SetTextSize(0.028);
+      h.DrawLatex(0.5, 0.888,
+                  "each column is a stage: efficiency / purity, in percent");
+
+      // Second header line naming what the pair means, so a bare number is
+      // never ambiguous about which stage it belongs to.
+      std::vector<std::vector<Cell>> body;
+      {
+        std::vector<Cell> sub;
+        sub.push_back({""});
+        sub.push_back({""});
+        sub.push_back({""});
+        for (int k = 0; k < 7; ++k)
+          sub.push_back({"eff/pur", static_cast<Color_t>(kGray + 2)});
+        body.push_back(sub);
+      }
+      for (std::size_t r = i; r < rows.size() && r < i + kPerPage; ++r) {
+        if (rows[r].empty()) {
+          body.push_back({});
+          continue;
+        }
+        std::vector<Cell> cells;
+        for (std::size_t k = 0; k < rows[r].size(); ++k) {
+          Color_t col = kBlack;
+          if (k >= 3) {
+            // Colour the efficiency half: green >= 90, orange >= 60, red below,
+            // grey when the stage has nothing to say for this class.
+            const std::string& t = rows[r][k];
+            if (t.rfind("--", 0) == 0)
+              col = static_cast<Color_t>(kGray + 2);
+            else {
+              const double v = std::atof(t.c_str());
+              col            = static_cast<Color_t>(v >= 90.0 ? kGreen + 2
+                                                    : (v >= 60.0 ? kOrange + 7 : kRed + 1));
+            }
+          }
+          cells.push_back({rows[r][k], col});
+        }
+        body.push_back(cells);
+      }
+      const double avail = kTableYTop - kTableYBot;
+      // Budget for what is drawn AFTER the table too -- the FAR / recovery /
+      // in-acceptance / BLIND footer and its note all use this same dY. Counting
+      // only the rows pushed the last footer lines below yBot and off the page
+      // (octofit's ParameterTablePage carries a comment about hitting exactly
+      // this with its trailing Minuit commands).
+      const double footerUnits = ctx.footer.empty() ? 0.0 : 1.5 + 0.9 * ctx.footer.size();
+      const double dY =
+          std::min(kTableBaseDY, avail / std::max<double>(body.size() + 4 + footerUnits, 1));
+      // "100.0/100.0" is the widest cell; 10 columns of it will not fit at
+      // octofit's body size, so take the smaller of the row- and width-limited
+      // sizes instead of overlapping the columns.
+      const double sz = std::min(kTableTextSize * (dY / kTableBaseDY),
+                                 fitTextSize(static_cast<int>(cols.size()), 11, 0.93));
+      drawTable(cols, header, body, kTableYTop, dY, sz, 0.045, 0.975);
+
+      // Footer facts once, on the last page of the table.
+      if (i + kPerPage >= rows.size() && !ctx.footer.empty()) {
+        TLatex f;
+        f.SetNDC();
+        f.SetTextFont(kMono);
+        f.SetTextSize(std::min(0.020, sz * 1.3));
+        f.SetTextColor(kBlack);
+        // Anchored to the rows actually drawn: a fixed constant here put the
+        // footer on top of the last few class rows once the rows grew.
+        double y = kTableYTop - dY * static_cast<double>(body.size() + 2.5);
+        for (const auto& line : ctx.footer) {
+          f.DrawLatex(0.055, y, line.c_str());
+          y -= dY * 0.85;
+        }
+        f.SetTextColor(static_cast<Color_t>(kGray + 2));
+        f.SetTextSize(std::min(0.018, sz * 1.15));
+        f.DrawLatex(0.055, y - dY * 0.4,
+                    "purity is per-trigger only: fakes and ghosts carry no class");
+      }
+      c.Print(path.c_str(), "pdf");
+    }
+  }
+
+  // ---- pages 4+: plots, grouped by detector, four per page -----------------
+  // Detector order follows the wiring order, and each detector's own
+  // time/space/energy plots stay adjacent, so a page never mixes the tail of
+  // one detector with the head of another unless the page is full.
+  std::vector<TH2D*> ordered;
+  auto push = [&](const std::string& key) {
+    auto it = hists.find(key);
+    if (it != hists.end() && it->second != nullptr && it->second->GetEntries() > 0)
+      ordered.push_back(it->second);
+  };
+  // Candidate-level timing leads: it characterises the trigger itself, not a
+  // single subsystem.
+  push("t0_residual");
+  push("t0_sigma");
+  push("t0_pull");
+  for (const auto& d : ResolutionHists::trackerNames()) {
+    push("time_" + d);
+    push("space_" + d);
+    push("radial_" + d);
+  }
+  for (const auto& s : ResolutionHists::caloNames()) {
+    push("time_" + s);
+    push("space_" + s);
+    push("energy_" + s);
+  }
+
+  for (std::size_t i = 0; i < ordered.size(); i += 4) {
+    c.Clear();
+    {
+      TLatex pt;
+      pt.SetNDC();
+      pt.SetTextAlign(22);
+      pt.SetTextFont(kFontBold);
+      pt.SetTextSize(0.040);
+      pt.DrawLatex(0.5, 0.945, "Residual distributions");
+    }
+    // Square pads. Divide(2,2) on a portrait canvas gives tall pads that
+    // stretch a residual peak vertically; these NDC boxes are sized so
+    // width*canvas_w == height*canvas_h.
+    const double pw = 0.44;
+    const double ph = pw * static_cast<double>(kCanvasW) / static_cast<double>(kCanvasH);
+    const double xs[4] = {0.045, 0.525, 0.045, 0.525};
+    const double ys[4] = {0.55, 0.55, 0.55 - ph - 0.06, 0.55 - ph - 0.06};
+    std::vector<TPad*> pads;
+    for (std::size_t k = 0; k < 4 && i + k < ordered.size(); ++k) {
+      auto* pad = new TPad(("p" + std::to_string(i + k)).c_str(), "", xs[k], ys[k], xs[k] + pw,
+                           ys[k] + ph);
+      pad->SetLeftMargin(0.16);
+      pad->SetBottomMargin(0.14);
+      pad->SetRightMargin(0.05);
+      pad->SetTopMargin(0.10);
+      pad->Draw();
+      pads.push_back(pad);
+    }
+    for (std::size_t k = 0; k < pads.size(); ++k) {
+      pads[k]->cd();
+      // Project out the class axis for the shape, and keep the 2D underneath
+      // for anyone opening the ROOT file: the PDF shows the projection, which
+      // is what a resolution is read off.
+      TH2D* h  = ordered[i + k];
+      auto* px = projection(h, "_px");
+      if (px == nullptr)
+        continue;
+      // Count into the title. What is counted differs by histogram: the
+      // candidate-level t0 plots have one entry per trigger, the detector
+      // plots one per hit or cluster -- labelling them all "#trigger" would
+      // be wrong by orders of magnitude on the hit plots.
+      const std::string key = h->GetName();
+      const char* what = (key.rfind("t0_", 0) == 0)
+                             ? "#trigger"
+                             : ((key.rfind("energy_", 0) == 0 || key.rfind("space_EcalB", 0) == 0)
+                                    ? "#cluster"
+                                    : "#hits");
+      px->SetTitle((std::string(h->GetTitle()) + "   " + what + " = " +
+                    std::to_string(static_cast<long>(h->GetEntries())))
+                       .c_str());
+      px->SetLineWidth(2);
+
+      // Zoom the x axis onto the data. The booked ranges are deliberately
+      // generous -- wide enough for the coincidence gate, fine enough for a
+      // ps-scale TOF core -- so drawn raw, most plots are a spike against a
+      // decade of empty axis. Clip to the central 99% and pad, which keeps the
+      // core AND the pedestal shoulders visible whatever the detector.
+      double q[2]     = {0.0, 0.0};
+      double probs[2] = {0.005, 0.995};
+      px->GetQuantiles(2, q, probs);
+      double lo = q[0];
+      double hi = q[1];
+      if (hi > lo) {
+        const double pad = 0.10 * (hi - lo);
+        lo -= pad;
+        hi += pad;
+        // Positive-definite residuals start at zero; do not invent a negative
+        // axis for |rec-sim| or dR.
+        if (px->GetXaxis()->GetXmin() >= 0.0)
+          lo = std::max(0.0, lo);
+        px->GetXaxis()->SetRangeUser(std::max(lo, px->GetXaxis()->GetXmin()),
+                                     std::min(hi, px->GetXaxis()->GetXmax()));
+      }
+      px->GetXaxis()->SetLabelSize(0.035);
+      px->GetXaxis()->SetLabelFont(kFont);
+      px->GetXaxis()->SetTitleSize(0.042);
+      px->GetXaxis()->SetTitleFont(kFont);
+      px->GetYaxis()->SetLabelSize(0.035);
+      px->GetYaxis()->SetLabelFont(kFont);
+      px->SetTitleFont(kFontBold); // bold serif pad title
+      px->SetTitleSize(0.048);
+      px->Draw("hist");
+
+      // Show the fit that produced the number in the summary table, so the
+      // reader can judge it rather than trust it.
+      double fs = 0.0, fe = 0.0;
+      if (TF1* f = fitCore(px, fs, fe); f != nullptr) {
+        f->SetLineColor(kRed + 1);
+        f->SetLineWidth(2);
+        f->SetNpx(500);
+        f->Draw("same");
+        TLatex lab;
+        lab.SetNDC();
+        lab.SetTextFont(kFont);
+        lab.SetTextSize(0.045);
+        lab.SetTextColor(kRed + 1);
+        // Unit lifted from the x-axis title's "[...]", so the label cannot
+        // drift from the axis it is describing. Dimensionless plots (pull,
+        // relative energy) simply have none.
+        std::string unit;
+        {
+          const std::string at = px->GetXaxis()->GetTitle();
+          const auto        ob = at.rfind('[');
+          const auto        cb = at.rfind(']');
+          if (ob != std::string::npos && cb != std::string::npos && cb > ob + 1)
+            unit = " " + at.substr(ob + 1, cb - ob - 1);
+        }
+        std::ostringstream os;
+        os << "#sigma_{res} = " << std::fixed << std::setprecision(fs < 0.1 ? 4 : 2) << fs
+           << unit;
+        lab.SetTextAlign(33);
+        lab.DrawLatex(0.92, 0.80, os.str().c_str());
+      }
+    }
+    c.Print(path.c_str(), "pdf");
+  }
+
+  c.Clear();
+  c.Print((path + ")").c_str(), "pdf"); // close the document
+  gROOT->SetBatch(batch_before);
+  return true;
+}
+
+} // namespace eicrecon::eb
