@@ -38,6 +38,14 @@
 #include "algorithms/interfaces/ActsSvc.h"
 #include "algorithms/interfaces/WithPodConfig.h"
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
 namespace eicrecon {
 
 #if !__has_include(<ActsExamples/EventData/SpacePointContainer.hpp>)
@@ -122,3 +130,9 @@ private:
   static std::tuple<float, float> lineFit(std::vector<std::pair<float, float>>& positions);
 };
 } // namespace eicrecon
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
