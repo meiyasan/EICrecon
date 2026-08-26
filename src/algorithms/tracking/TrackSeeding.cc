@@ -31,6 +31,13 @@
 
 namespace eicrecon {
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 void TrackSeeding::init() {
 
   // Filter parameters
@@ -93,7 +100,19 @@ void TrackSeeding::init() {
   m_seedFinderConfig  = m_seedFinderConfig.calculateDerivedQuantities();
   m_seedFinderOptions = m_seedFinderOptions.calculateDerivedQuantities(m_seedFinderConfig);
 }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 void TrackSeeding::process(const Input& input, const Output& output) const {
 
   const auto [trk_hits]        = input;
@@ -150,6 +169,11 @@ void TrackSeeding::process(const Input& input, const Output& output) const {
     delete sp;
   }
 }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 std::vector<const eicrecon::SpacePoint*>
 TrackSeeding::getSpacePoints(const edm4eic::TrackerHitCollection& trk_hits) {
@@ -163,6 +187,13 @@ TrackSeeding::getSpacePoints(const edm4eic::TrackerHitCollection& trk_hits) {
   return spacepoints;
 }
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 std::optional<edm4eic::MutableTrackParameters>
 TrackSeeding::estimateTrackParamsFromSeed(const Acts::Seed<SpacePoint>& seed) const {
   std::vector<std::pair<float, float>> xyHitPositions;
@@ -247,6 +278,11 @@ TrackSeeding::estimateTrackParamsFromSeed(const Acts::Seed<SpacePoint>& seed) co
 
   return trackparam;
 }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 std::pair<float, float> TrackSeeding::findPCA(std::tuple<float, float, float>& circleParams) {
   const float R  = std::get<0>(circleParams);

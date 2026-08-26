@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Acts/EventData/Seed.hpp>
 #include <Acts/Geometry/GeometryIdentifier.hpp>
 #include <Acts/Surfaces/Surface.hpp>
 #include "ActsGeometryProvider.h"
@@ -45,7 +44,4 @@ public:
 inline bool operator==(SpacePoint a, SpacePoint b) { return (a.getObjectID() == b.getObjectID()); }
 
 using SpacePointPtr = std::unique_ptr<SpacePoint>;
-/// Container of sim seed
-using SeedContainer = std::vector<Acts::Seed<SpacePoint>>;
-
 } // namespace eicrecon

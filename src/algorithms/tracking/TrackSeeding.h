@@ -49,8 +49,20 @@ public:
   using CollectionType = collection_t;
   using ValueType      = typename CollectionType::value_type;
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
   friend class Acts::SpacePointContainer<SpacePointContainerAdapter<collection_t>,
                                          Acts::detail::RefHolder>;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
   SpacePointContainerAdapter() = delete;
   explicit SpacePointContainerAdapter(CollectionType& container) : m_storage(container) {}
@@ -88,9 +100,21 @@ public:
 #else
   using SpacePointContainerType = SpacePointContainerAdapter<std::vector<const SpacePoint*>>;
 #endif
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
   using proxy_type =
       typename Acts::SpacePointContainer<SpacePointContainerType,
                                          Acts::detail::RefHolder>::SpacePointProxyType;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
   TrackSeeding(std::string_view name)
       : TrackSeedingAlgorithm{name,
@@ -105,9 +129,21 @@ private:
   const algorithms::ActsSvc& m_actsSvc{algorithms::ActsSvc::instance()};
   const std::shared_ptr<const ActsGeometryProvider> m_geoSvc{m_actsSvc.acts_geometry_provider()};
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
   Acts::SeedFilterConfig m_seedFilterConfig;
   Acts::SeedFinderOptions m_seedFinderOptions;
   Acts::SeedFinderOrthogonalConfig<proxy_type> m_seedFinderConfig;
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
   static int determineCharge(std::vector<std::pair<float, float>>& positions,
                              const std::pair<float, float>& PCA,
@@ -115,9 +151,20 @@ private:
   static std::pair<float, float> findPCA(std::tuple<float, float, float>& circleParams);
   static std::vector<const eicrecon::SpacePoint*>
   getSpacePoints(const edm4eic::TrackerHitCollection& trk_hits);
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
   std::optional<edm4eic::MutableTrackParameters>
   estimateTrackParamsFromSeed(const Acts::Seed<SpacePoint>& seed) const;
-
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
   static std::tuple<float, float, float> circleFit(std::vector<std::pair<float, float>>& positions);
   static std::tuple<float, float> lineFit(std::vector<std::pair<float, float>>& positions);
 };
