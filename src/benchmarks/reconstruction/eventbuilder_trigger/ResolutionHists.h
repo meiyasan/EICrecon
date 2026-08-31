@@ -50,6 +50,9 @@ public:
   const std::map<std::string, TH2D*>& hists() const { return m_hists; }
   bool enabled() const { return m_dir != nullptr || m_in_memory; }
 
+  /// Hit time against the TRUE COLLISION time. Carries the particle's time of
+  /// flight, so for TOF it is not a sensor resolution -- see the booking in
+  /// ResolutionHists.cc for why referencing the sim hit time does not fix it.
   void fillTrackerTime(std::size_t det, int cls, double dt_ns);
   /// In-plane residual: the component on the measuring surface,
   /// sqrt((r*dphi)^2 + dz^2). This is the reconstruction resolution.

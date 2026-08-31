@@ -70,9 +70,9 @@ void drawLines(const std::vector<std::string>& lines, double x0, double y0, doub
 /// peak, not the full range. For the time residuals this matters -- the tails
 /// are the coincidence gate, flat out to +-dt, and a full-range fit would
 /// report the gate width instead of the detector.
-/// Fit the double-Gaussian and leave the function attached to the histogram
-/// so it can be drawn. Returns nullptr if the fit did not produce a usable
-/// core. coreSigma() below is the measurement-only wrapper.
+/// Fit and leave the function attached to the histogram so it can be drawn.
+/// Returns nullptr if the fit did not produce a usable core. coreSigma() below
+/// is the measurement-only wrapper.
 TF1* fitCore(TH1* h, double& sigma, double& err) {
   if (h == nullptr || h->GetEntries() < 200)
     return nullptr;
@@ -86,28 +86,58 @@ TF1* fitCore(TH1* h, double& sigma, double& err) {
   if (!(rms > 0) || !(peak > 0))
     return nullptr;
 
-  auto* f = new TF1("core", "gaus(0)+gaus(3)", axis_lo, axis_hi);
-  f->SetParameters(peak, peak_x, std::max(2.0 * bin_w, 0.2 * rms), 0.2 * peak, peak_x, rms);
-  f->SetParLimits(0, 0.0, 10.0 * peak);
-  f->SetParLimits(1, peak_x - rms, peak_x + rms);
-  f->SetParLimits(2, bin_w, 0.8 * half_span);
-  f->SetParLimits(3, 0.0, 10.0 * peak);
-  f->SetParLimits(4, axis_lo, axis_hi);
-  f->SetParLimits(5, bin_w, 2.0 * half_span);
-  if (h->Fit(f, "QNR") != 0) {
+  // A SINGLE Gaussian, iterated over +-2.5 sigma of the peak -- which is what
+  // the comment above always described, and what the code did not do.
+  //
+  // It used to fit gaus(0)+gaus(3) across the whole axis and report whichever
+  // component came out NARROWER, guarded only by that component holding 5% of
+  // the peak height. On a genuinely double-humped distribution that is fine.
+  // On a clean single Gaussian the two components are degenerate: the fit
+  // parks a narrow spike on the top few bins, lets the broad one absorb the
+  // rest, and reports the spike. That is how the TOF sensor residual -- a pure
+  // 25 ps digitisation smear, about as Gaussian as it gets -- came back as
+  // 9.78 ps, well under the width actually injected into it.
+  //
+  // Restricting the range instead of adding a second component gets the same
+  // tail rejection honestly: the coincidence-gate tails sit far outside
+  // 2.5 sigma and are simply not fitted.
+  auto* f = new TF1("core", "gaus", axis_lo, axis_hi);
+  double mu = peak_x;
+  double sg = std::max(rms, 2.0 * bin_w);
+  for (int pass = 0; pass < 4; ++pass) {
+    const double lo = std::max(mu - 2.5 * sg, axis_lo);
+    const double hi = std::min(mu + 2.5 * sg, axis_hi);
+    if (!(hi > lo)) {
+      delete f;
+      return nullptr;
+    }
+    f->SetParameters(peak, mu, sg);
+    f->SetParLimits(0, 0.0, 10.0 * peak);
+    f->SetParLimits(1, lo, hi);
+    f->SetParLimits(2, 0.5 * bin_w, 4.0 * half_span);
+    if (h->Fit(f, "QNR", "", lo, hi) != 0) {
+      delete f;
+      return nullptr;
+    }
+    mu                 = f->GetParameter(1);
+    const double new_s = std::fabs(f->GetParameter(2));
+    if (!(new_s > 0)) {
+      delete f;
+      return nullptr;
+    }
+    const bool settled = std::fabs(new_s - sg) < 0.01 * sg;
+    sg                 = new_s;
+    if (settled)
+      break; // converged: another pass would move it by <1%
+  }
+  sigma = sg;
+  err   = f->GetParError(2);
+  // Unresolved (narrower than a bin) or so wide it is the axis, not a core.
+  if (sigma <= bin_w || sigma >= 0.5 * half_span) {
     delete f;
     return nullptr;
   }
-  const double s1            = std::fabs(f->GetParameter(2));
-  const double s2            = std::fabs(f->GetParameter(5));
-  const bool   first_is_core = (s1 <= s2);
-  sigma                      = first_is_core ? s1 : s2;
-  err                        = first_is_core ? f->GetParError(2) : f->GetParError(5);
-  const double amp           = first_is_core ? f->GetParameter(0) : f->GetParameter(3);
-  if (sigma <= 1.5 * bin_w || sigma >= 0.5 * half_span || amp < 0.05 * peak) {
-    delete f;
-    return nullptr;
-  }
+  f->SetRange(mu - 3.0 * sg, mu + 3.0 * sg); // draw over what was fitted
   return f;
 }
 
@@ -558,12 +588,12 @@ bool writePdfReport(const std::string& path, const std::string& table,
     // column silently changes both quantity and unit between trackers and
     // calorimeters, which no header can carry on its own.
     h.SetTextSize(0.017);
-    h.DrawLatex(0.5, 0.893, "residuals measured against the TRUE collision time and position");
+    h.DrawLatex(0.5, 0.893, "residuals measured against MC truth: the sim hit, not the collision");
     h.SetTextColor(static_cast<Color_t>(kGray + 3));
     h.SetTextSize(0.015);
     h.DrawLatex(0.5, 0.868,
-                "time = Gaussian width of the residual core, TOF in ps and the gaseous and "
-                "silicon detectors in ns");
+                "time = sensor resolution: core width of (t_{rec} + |r|/c - t_{sim}), "
+                "TOF in ps and gaseous/silicon in ns");
     h.DrawLatex(0.5, 0.848,
                 "position = 68% of hits land within this of truth: trackers in #mum, "
                 "calorimeters in rad (the cluster-to-particle opening angle)");

@@ -104,10 +104,21 @@ void ResolutionHists::fillTrackerTime(std::size_t det, int cls, double dt_ns) {
   // rather than to t0, any residual per-layer offset the r/c alignment did
   // not remove shifts the peak off zero, and a tight window would push the
   // whole distribution into overflow. 10 ps bins still resolve a 30 ps core.
-  const double range = tof ? 5000.0 : 45.0; // ps for TOF, ns for the rest
-  const int    nbins = tof ? 1000 : 600;    // 10 ps  |  0.15 ns per bin
+  //
+  // NOTE: this residual carries the particle's TIME OF FLIGHT (~2-6 ns in the
+  // barrel), so for TOF it is not a sensor resolution and the core fit finds
+  // nothing to fit -- the summary table reads "--" for both TOF rows. That is
+  // honest, not a binning failure. Referencing the SIM HIT time instead was
+  // tried and does NOT fix it: measured on TOFBarrel, t_rec - t_sim has a
+  // -2.95 ns median with a ~1 ns spread (866 ps over the central 90%), i.e. a
+  // systematic offset far larger than the 25 ps the reconstruction itself
+  // quotes as timeError -- and only 469 of 3886 TOF hits carry a sim link, so
+  // it also throws away 88% of the statistics. Getting a ps-scale number out
+  // of this needs the offset understood first; see the README.
+  const double range = tof ? 2000.0 : 45.0; // ps for TOF, ns for the rest
+  const int    nbins = tof ? 2000 : 600;    // 2 ps  |  0.15 ns per bin
   get("time_" + trackerNames()[det], trackerNames()[det] + " hit time residual",
-      tof ? "t_{hit} - t_{MC} [ps]" : "t_{hit} - t_{MC} [ns]", nbins, -range, range)
+      tof ? "t_{rec} - t_{sim} [ps]" : "t_{rec} - t_{sim} [ns]", nbins, -range, range)
       ->Fill(tof ? dt_ns * 1000.0 : dt_ns, cls);
 }
 

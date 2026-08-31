@@ -210,6 +210,60 @@ objects, and one class is a `ProjectionX` on a named bin.
 | `space_<calo>` | `dR(cluster, MC)` | calo — angular, not metric |
 | `energy_<calo>` | `(E_rec - E_MC) / E_MC` | calo |
 
+### The `time` column is a SENSOR resolution
+
+`time` fits `t_rec + |r|/c - t_sim`: the reconstructed hit time with the
+event builder's propagation correction undone, against the sim hit's own time.
+Both corrections are needed, and getting either wrong is what made this column
+read `--` for TOF for a long time.
+
+**Why undo `|r|/c`.** The rec hits reaching the child are TIME-ALIGNED --
+`TimeAlignment_factory::correct()` subtracts `|r|/c`, the straight-line beta=1
+propagation time, so hits of one collision share a common time. Comparing an
+aligned hit with an unaligned sim hit measures that correction, not the sensor:
+-2.95 ns on TOFBarrel, -6.35 ns on TOFEndcap, tracking flight path exactly
+(tight at the fixed-z endcap, spread across the barrel's z range).
+
+**Why not reference the collision time.** `t_hit - t_MC` on an aligned hit is
+`TOF - |r|/c` -- how well the straight-line beta=1 assumption recovers t0. That
+is a real quantity, but it is one-sided and a few ns wide, dominated by track
+curvature in the 1.7 T field and by beta<1. There is no Gaussian core, and the
+fit correctly declines rather than reporting that spread as a resolution.
+
+Verified from the digitiser's own debug output
+(`-PBTOF:TOFBarrelRawHitFrame:LogLevel=debug`), per cellID:
+
+| check | result |
+|---|---|
+| `hit_time_stamp - sim_time*1000` | median **1.6 ps**, p16/p84 -20.7/+27.2 ps -- exactly the configured 25 ps smear |
+| child `SimHits.time` vs the time the digitiser saw | **0.0000 ns** -- exact |
+| child `RecHits.time` vs the raw timestamp | **-2.53 ns** -- the alignment correction |
+
+So the digitisation is faithful and the sim hits are copied exactly; the whole
+discrepancy was the propagation correction.
+
+**Cost:** the residual needs a sim hit, and only hits whose MCParticle passes
+the `mc_time_window` gate carry one (~12% for TOF, by design -- see
+`eventbuilder.cc`). So the `entries` count for a tracker row is that subset,
+not every labelled hit.
+
+**The fit is validated against a known answer.** TOFBarrel's residual is a
+pure digitisation smear of a configured 25 ps, so that row has ground truth,
+and `fitCore` returns **22.5 ps** on 469 entries. It is the only row in this
+table whose correct value is known independently, which makes it the one worth
+re-checking after any change to the fit.
+
+Getting there needed a fix to `fitCore` itself: it used to fit `gaus(0)+gaus(3)`
+over the full axis and report whichever component came out narrower. On a clean
+single Gaussian those two are degenerate -- the fit parks a narrow spike on the
+top bins, lets the broad one absorb the rest, and reports the spike (TOFBarrel
+came back as 9.78 ps, B0Tracker as 0.825 ns, ten times better than its silicon
+siblings). It is now a single Gaussian iterated over +-2.5 sigma of the peak,
+which rejects the coincidence-gate tails by not fitting them rather than by
+absorbing them into a second component.
+
+TOFEndcap still reads `--`: 179 entries against fitCore's 200 minimum.
+
 ### Time reference
 
 Residuals are measured against **`weights[MC_T]`, the true collision time**, not
