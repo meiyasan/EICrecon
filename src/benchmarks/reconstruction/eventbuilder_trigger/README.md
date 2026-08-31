@@ -210,6 +210,37 @@ objects, and one class is a `ProjectionX` on a named bin.
 | `space_<calo>` | `dR(cluster, MC)` | calo — angular, not metric |
 | `energy_<calo>` | `(E_rec - E_MC) / E_MC` | calo |
 
+### Reproducibility
+
+At a fixed thread count the table is deterministic. Two things had to be fixed
+to get there, both in how the STAGE 3 tap tracked which parent frame it was on.
+
+Children of different frames interleave across worker threads -- JANA's
+ordering is enforced within a level, not between a frame and the children of
+the frame before it -- and the tap guarded its per-frame work with
+`frame != m_last_frame`, remembering only the last one. So a frame whose
+children arrived in two bursts was processed TWICE (double-counting its STAGE 3
+hits), and every backwards step read as a gap in the frame numbering, which is
+where `BLIND` came from.
+
+Neither was a real effect. Measured on one 40-frame sample:
+
+| | 4 threads | 4 threads | 1 thread | 1 thread |
+|---|---|---|---|---|
+| `children` | 391 | 391 | 391 | 391 |
+| `BLIND`, before the fix | 20 | 26 | 0 | 0 |
+
+`children` equals `candidates` in every run, so no child was ever missed and
+the true blind count is zero. The tap now keeps the SET of frames it has seen,
+and `BLIND` is the frame tap's own count minus the distinct frames this tap
+reached -- a difference of two order-independent counts.
+
+Same-thread-count runs now reproduce exactly, `in-acceptance charged` and the
+`acts-trk` column included. A residual difference remains BETWEEN thread counts
+(1801 vs 1793 in-acceptance charged, and a larger gap in acts-trk purity, at 4
+vs 1 thread); that is upstream of this plugin, most likely in ACTS itself, and
+it does not affect a report generated at a fixed `-Pnthreads`.
+
 ### The `time` column is a SENSOR resolution
 
 `time` fits `t_rec + |r|/c - t_sim`: the reconstructed hit time with the

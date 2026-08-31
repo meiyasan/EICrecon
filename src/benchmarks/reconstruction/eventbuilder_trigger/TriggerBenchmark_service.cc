@@ -220,6 +220,7 @@ void TriggerBenchmark_service::addEvent(const Totals& d,
   m_totals.trk_reco_matched += d.trk_reco_matched;
   m_totals.cal_reco += d.cal_reco;
   m_totals.cal_reco_matched += d.cal_reco_matched;
+  m_totals.children += d.children;
   m_totals.saw_stage3 = m_totals.saw_stage3 || d.saw_stage3;
   m_totals.used_stored_nexp = m_totals.used_stored_nexp || d.used_stored_nexp;
   m_totals.stored_nexp += d.stored_nexp;
@@ -236,6 +237,17 @@ void TriggerBenchmark_service::addEvent(const Totals& d,
     dst.cal_reco_good += row.cal_reco_good;
     dst.labeled_hits += row.labeled_hits;
   }
+}
+
+void TriggerBenchmark_service::addChildFrames(std::uint64_t n) {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  m_child_frames += n;
+  m_have_child_frames = true;
+  // Frames the STAGE 3 tap never saw produced no child event, so their
+  // injected collisions are missing from that tap's denominators. Counting
+  // them by difference is order-independent; inferring them from gaps in the
+  // frame numbering was not (see EventBenchmark_processor.cc).
+  m_blind_frames = (m_totals.frames > m_child_frames) ? m_totals.frames - m_child_frames : 0;
 }
 
 void TriggerBenchmark_service::addBlindFrames(std::uint64_t n) {
@@ -311,7 +323,8 @@ std::string TriggerBenchmark_service::renderTable(bool final_report) const {
                      : "== eventbuilder trigger benchmark (progress) ")
     << std::string(30, '=') << "\n"
     << "   frames " << m_totals.frames << " | candidates " << m_totals.candidates << " | real "
-    << m_totals.real << " | fake " << m_totals.fake << " | mode: " << mode << "\n\n";
+    << m_totals.real << " | fake " << m_totals.fake << " | children " << m_totals.children
+    << " | mode: " << mode << "\n\n";
 
   o << "   " << std::left << std::setw(14) << "class" << std::right << std::setw(6) << "inj"
     << std::setw(7) << "found" << std::setw(13) << "time" << std::setw(13) << "track"

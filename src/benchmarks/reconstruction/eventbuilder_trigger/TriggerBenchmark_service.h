@@ -129,6 +129,13 @@ struct Totals {
   /// acceptance rather than the benchmark's recomputation.
   bool used_stored_nexp = false;
   std::uint64_t stored_nexp = 0;
+  /// Child PhysicsEvents the STAGE 3 tap actually saw. The frame tap sees
+  /// every frame and every candidate, so `candidates` is deterministic; this
+  /// counts what reached the other level. The two should agree -- one child
+  /// per candidate -- and a shortfall means the run ended before the child
+  /// stream drained, which is exactly what makes BLIND and the STAGE 3
+  /// columns wobble between otherwise identical runs.
+  std::uint64_t children = 0;
   bool saw_stage3 = false; ///< false => STAGE 3 columns render "--", not 0
   bool saw_gnn    = false;
 };
@@ -175,6 +182,10 @@ public:
   /// efficiency figure honest about what it could not see.
   void addBlindFrames(std::uint64_t n);
 
+  /// Distinct parent frames the PhysicsEvent tap reached, reported once at
+  /// its Finish(). Blind frames are the frame tap's count minus this.
+  void addChildFrames(std::uint64_t n);
+
   /// Standalone mode = replaying a written *.eicrecon.root, where no Timeslice
   /// parent exists. Denominators degrade (zero-candidate frames are invisible);
   /// the header says so rather than quietly reporting a different number.
@@ -218,6 +229,8 @@ private:
   bool m_standalone      = false;
   std::uint64_t m_last_report_frames = 0;
   std::uint64_t m_blind_frames      = 0;
+  std::uint64_t m_child_frames      = 0;
+  bool          m_have_child_frames = false;
 
   int         m_report_every = 250;
   bool        m_stage3       = true;

@@ -540,18 +540,21 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
   if (has_parent) {
     const auto& parent = event.GetParent(JEventLevel::Timeslice);
     const auto  frame  = parent.GetEventNumber();
-    if (!m_seen_any_frame || frame != m_last_frame) {
-      // Frames that produced NO child never reach this tap at all. Their
-      // injected collisions therefore cannot be counted. Count the frames
-      // themselves from the gap in frame numbers so the report can state
-      // how blind it is instead of silently reporting an optimistic
-      // efficiency. See README.md, "Blind frames".
-      if (m_seen_any_frame && frame > m_last_frame + 1)
-        m_bench->addBlindFrames(frame - m_last_frame - 1);
-      m_seen_any_frame = true;
-      m_last_frame     = frame;
+    // Remember every frame seen, not just the last one. Children of different
+    // frames interleave across worker threads -- ordering is enforced within a
+    // level, not between a frame and the children of the frame before it -- so
+    // `frame != m_last_frame` both re-admitted a frame whose children arrived
+    // in two bursts (processing it TWICE and double-counting its STAGE 3 hits)
+    // and read every backwards step as a gap.
+    //
+    // That gap heuristic was where BLIND came from, and it was pure noise:
+    // measured on one 40-frame sample, 20 and 26 blind frames on two
+    // 4-thread runs of identical input, and 0 on two single-threaded runs.
+    // Zero is the truth -- `children` equalled `candidates` in all four, so
+    // every child was always processed. BLIND is now the frame tap's count
+    // minus the distinct frames seen here, which is order-independent.
+    if (m_seen_frames.insert(frame).second)
       processFrame(parent, frame);
-    }
   }
   if (!m_bench->stage3())
     return;
@@ -894,9 +897,16 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
     }
   }
 
+  d.children = 1;
   m_bench->addEvent(d, per_class);
 }
 
-void EventBenchmark_processor::Finish() { m_bench->tapFinished(); }
+void EventBenchmark_processor::Finish() {
+  // Report the distinct frames this tap reached. The service subtracts it
+  // from the frame tap's own count to get the genuinely blind frames -- the
+  // ones that produced no child at all.
+  m_bench->addChildFrames(m_seen_frames.size());
+  m_bench->tapFinished();
+}
 
 } // namespace eicrecon::eb

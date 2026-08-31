@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -42,8 +43,9 @@ private:
   double m_pt_min  = 0.1; ///< eventbuilder:findable:pt_min  (GeV/c)
   double m_eta_abs = 3.5; ///< eventbuilder:findable:eta_abs
   bool   m_checked_parent = false;
-  bool          m_seen_any_frame = false;
-  std::uint64_t m_last_frame     = 0;
+  /// Distinct parent frames whose frame-level work has been done. A set, not
+  /// a last-seen value: children arrive interleaved across threads.
+  std::set<std::uint64_t> m_seen_frames;
   bool          m_warned_no_cands = false;
 
   /// Frame-level counters (STAGE 1, STAGE 2, injected collisions), taken from
