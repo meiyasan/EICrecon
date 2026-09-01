@@ -49,7 +49,7 @@ Every stage prints one `eff/pur` cell.
 | `time` | collisions recovered / collisions injected | real candidates / all candidates |
 | `track` | real candidates passing `trk_pass` / real | `trk_pass` real / (`trk_pass` real + fake) |
 | `calo` | real candidates passing `cal_pass` / real | same shape, `cal_pass` |
-| `trigger` | real passing `trk_pass \|\| cal_pass` / real | same shape |
+| `trigger` | **composed**: collisions recovered AND passing `trk_pass \|\| cal_pass`, / injected -- `TIME && (TRACK \|\| CALO)` | `trk_pass\|\|cal_pass` real / (same + fake) |
 | `gnn` | frames not vetoed / frames scored | not-vetoed real / (real + false accepts) |
 | `acts-trk` | majority-matched truth / in-acceptance truth | matched tracks / all tracks (ghost rate) |
 | `calo-island` | matched truth groups / truth groups | matched clusters / all clusters |
@@ -58,52 +58,29 @@ Every stage prints one `eff/pur` cell.
 specifies — `n_tracklets` and `E_calo` thresholded — not ACTS or CaloIsland
 output. Those are the separate `acts-*` columns.
 
-### The columns are per-stage, NOT a chain
+### Three independent columns, one composed one
 
-**Each stage is denominated in the population that stage actually judged.**
-`time` divides by injected collisions, because the clustering is what decides
-whether a collision is recovered at all. `track`/`calo`/`trigger` divide by
-real *candidates*, because the fast primitives are per-candidate quantities: a
-collision the clustering never recovered has no candidate, hence no
-`n_tracklets` and no `E_calo`, and cannot be said to have failed the calo term.
+`time`, `track` and `calo` are INDEPENDENT measurements, each denominated in
+the population its own stage judged. `time` divides by injected collisions --
+the clustering decides whether a collision is recovered at all. `track` and
+`calo` divide by real candidates, because `n_tracklets` and `E_calo` are
+per-candidate quantities: a collision the clustering never recovered has no
+candidate, hence nothing to pass or fail. None of the three is conditioned on
+another, which is what makes each one the right number to tune its own
+threshold against.
 
-The consequence, and it is deliberate: **reading the row left to right does not
-give you a chain.** `trigger` can read 100% next to a `time` of 93.5% — that
-says the trigger accepted every candidate put in front of it, not that it
-recovered every collision. Each column answers a question about its own stage,
-which is what you tune a threshold against; a cumulative column would confound
-the primitive's discrimination with the clustering's efficiency.
-
-The composed figure is printed once, in the footer:
+`trigger` is the one COMPOSED column:
 
 ```
-chain    TIME && (TRACK || CALO) = 762 / 827 = 92.1%  (end-to-end; the stage columns are per-stage)
+trigger  =  TIME && (TRACK || CALO)
+         =  distinct injected collisions recovered by a candidate that also
+            cleared trk_pass || cal_pass,  over collisions injected
 ```
 
-That numerator counts distinct injected collisions recovered by a candidate
-that also cleared the trigger. The terms are OR-ed across every candidate that
-recovered a given collision rather than read off whichever one was seen first —
-a collision is track-triggered if ANY candidate that found it cleared the
-threshold.
-
-The `FAKE-ACCEPT` row is how often each stage accepts a fake. Its denominator
-is the fake population, so lower is better and it has no purity half.
-
-> With the default `eventbuilder:trigger:min_cal_energy=0` the calo term is
-> "off" — every candidate clears a zero threshold — so `cal_pass` is a
-> tautology and `calo`, hence `trigger`, read 100% efficiency *and* 100%
-> fake-accept. `min_tracklets=1` is nearly as weak on real candidates, though
-> it does reject ~89% of fakes. At the defaults STAGE 1 therefore discriminates
-> almost nothing real: that is the configuration reporting itself faithfully,
-> not a bug. Set real thresholds to make those columns mean something, and see
-> the `HcalEndcapN` note below before you pick a value.
-
-> **`e_calo` is missing one calorimeter.** `HcalEndcapN` clusters are produced
-> by EICrecon but are absent from `m_clu_in_names`/`m_clu_out_names` and from
-> the time-alignment list in `eventbuilder.cc` (its only mention there is
-> commented out), while its rec hits *are* wired in. Backward hadronic energy
-> therefore never reaches `E_calo`, biasing it low. Harmless while the
-> threshold is 0; it matters as soon as one is set.
+so `trigger <= time` holds by construction, and the terms are OR-ed across
+every candidate that recovered a given collision -- a collision is
+track-triggered if ANY candidate that found it cleared the threshold, not just
+the first one seen.
 
 ### Per-class rows
 
@@ -114,7 +91,8 @@ rest over the class's own real candidates:
 | column | per-class efficiency |
 |---|---|
 | `time` | collisions of this class recovered / injected |
-| `track` `calo` `trigger` | real candidates carrying this class that passed `trk_pass` / `cal_pass` / either |
+| `track` `calo` | real candidates carrying this class that passed `trk_pass` / `cal_pass` |
+| `trigger` | collisions of this class recovered by a candidate passing either primitive, / injected -- the composed chain |
 | `acts-trk` `calo-island` | majority-matched truth of this class / in-acceptance truth of this class |
 
 ### Per-class purity
@@ -212,34 +190,35 @@ objects, and one class is a `ProjectionX` on a named bin.
 
 ### Reproducibility
 
-At a fixed thread count the table is deterministic. Two things had to be fixed
-to get there, both in how the STAGE 3 tap tracked which parent frame it was on.
+The table is deterministic across thread counts, and the event builder now
+enforces that rather than merely aspiring to it. Three mechanisms, all in the
+eventbuilder plugin (not this benchmark):
 
-Children of different frames interleave across worker threads -- JANA's
-ordering is enforced within a level, not between a frame and the children of
-the frame before it -- and the tap guarded its per-frame work with
-`frame != m_last_frame`, remembering only the last one. So a frame whose
-children arrived in two bursts was processed TWICE (double-counting its STAGE 3
-hits), and every backwards step read as a gap in the frame numbering, which is
-where `BLIND` came from.
+1. **The STAGE 3 tap tracks frames as a set.** Children of different frames
+   interleave across workers, and guarding per-frame work with "is this the
+   frame I saw last?" both double-processed frames whose children arrived in
+   two bursts and fabricated the old BLIND count from arrival-order gaps
+   (20 and 26 on two identical 4-thread runs; 0 is the truth).
 
-Neither was a real effect. Measured on one 40-frame sample:
+2. **Cross-frame recovery resolves on facts, never on a clock.**
+   TimesliceBuffer_service::fetch distinguishes Present / Absent / Timeout.
+   Absent is a fact (frame evicted, or a new input file began -- the
+   generation counter). Timeout mid-stream is a HARD ERROR: rather than
+   silently emitting a candidate whose recovered hits depend on machine load,
+   the job dies with an explicit message. At the old silent 2 s timeout the
+   MCParticle content of 109 of 391 child events changed between a 1-thread
+   and a 4-thread run of identical input.
 
-| | 4 threads | 4 threads | 1 thread | 1 thread |
-|---|---|---|---|---|
-| `children` | 391 | 391 | 391 | 391 |
-| `BLIND`, before the fix | 20 | 26 | 0 | 0 |
+3. **Configurations that cannot satisfy the above refuse to run.**
+   forward_frames > 0 requires enough workers that the next frame's
+   time-alignment (which produces the deposit) reliably leads the unfold that
+   consumes it; below that, the job errors out at configuration time instead
+   of quietly computing different physics. Set
+   eventbuilder:unfolder:forward_frames=0 explicitly if single-threaded
+   running matters more than late-tail recovery.
 
-`children` equals `candidates` in every run, so no child was ever missed and
-the true blind count is zero. The tap now keeps the SET of frames it has seen,
-and `BLIND` is the frame tap's own count minus the distinct frames this tap
-reached -- a difference of two order-independent counts.
-
-Same-thread-count runs now reproduce exactly, `in-acceptance charged` and the
-`acts-trk` column included. A residual difference remains BETWEEN thread counts
-(1801 vs 1793 in-acceptance charged, and a larger gap in acts-trk purity, at 4
-vs 1 thread); that is upstream of this plugin, most likely in ACTS itself, and
-it does not affect a report generated at a fixed `-Pnthreads`.
+With jana:nevents set, fetches beyond the limit are skipped by configuration,
+so the stream tail never rides a timeout either.
 
 ### The `time` column is a SENSOR resolution
 

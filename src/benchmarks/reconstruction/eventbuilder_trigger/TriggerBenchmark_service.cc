@@ -350,7 +350,7 @@ std::string TriggerBenchmark_service::renderTable(bool final_report) const {
       << num(r.found, 7) << pair_cell(r.found, r.injected, r.found, r.real_cands)
       << pair_cell(r.trk_ok, r.real_cands, r.found_trk, r.trk_ok)
       << pair_cell(r.cal_ok, r.real_cands, r.found_cal, r.cal_ok)
-      << pair_cell(r.trig_ok, r.real_cands, r.found_trig, r.trig_ok) << dash_pair()
+      << pair_cell(r.found_trig, r.injected, r.found_trig, r.trig_ok) << dash_pair()
       << (m_totals.saw_stage3
               ? pair_cell(r.trk_matched, r.trk_expected, r.trk_reco_good, r.trk_reco_any)
               : dash_pair())
@@ -366,14 +366,16 @@ std::string TriggerBenchmark_service::renderTable(bool final_report) const {
     // time: collisions recovered / injected, and real / all candidates
     << pair_cell(m_totals.collisions_found, m_totals.collisions_injected, m_totals.real,
                  m_totals.candidates)
-    // track/calo/trigger: each stage's OWN acceptance, denominated in the
-    // candidates it actually judged. Deliberately NOT cumulative -- see the
-    // "chain" footer line for the composed figure.
+    // track/calo: each primitive's OWN acceptance over the candidates it
+    // judged -- independent of the time column and of each other. trigger is
+    // the one COMPOSED column: TIME && (TRACK || CALO), counted in distinct
+    // injected collisions, so trigger <= time always holds and the row reads
+    // as the trigger chain end to end.
     << pair_cell(m_totals.trk_ok, m_totals.real, m_totals.trk_ok,
                  m_totals.trk_ok + m_totals.trk_fake)
     << pair_cell(m_totals.cal_ok, m_totals.real, m_totals.cal_ok,
                  m_totals.cal_ok + m_totals.cal_fake)
-    << pair_cell(m_totals.trig_ok, m_totals.real, m_totals.trig_ok,
+    << pair_cell(m_totals.found_trig, m_totals.collisions_injected, m_totals.trig_ok,
                  m_totals.trig_ok + m_totals.trig_fake)
     << (m_totals.saw_gnn ? pair_cell(m_totals.gnn_passed, m_totals.gnn_frames, m_totals.gnn_passed,
                                      m_totals.gnn_passed + m_totals.gnn_fake_accepted)
@@ -416,17 +418,6 @@ std::string TriggerBenchmark_service::renderTable(bool final_report) const {
   o << "   recovery " << m_totals.collisions_found << " / " << m_totals.collisions_injected
     << " collisions found (" << missed << " missed)\n";
 
-  // The one composed number. The stage columns above are each denominated in
-  // the population that stage actually judged -- `time` in injected
-  // collisions, the rest in the candidates that existed to be judged -- so
-  // they are deliberately NOT a left-to-right product. This line is: distinct
-  // injected collisions recovered by a candidate that also cleared the trigger.
-  if (m_totals.collisions_injected > 0)
-    o << "   chain    TIME && (TRACK || CALO) = " << m_totals.found_trig << " / "
-      << m_totals.collisions_injected << " = " << std::fixed << std::setprecision(1)
-      << (100.0 * double(m_totals.found_trig) / double(m_totals.collisions_injected))
-      << "%  (end-to-end; the stage columns are per-stage)\n";
-
   if (m_totals.used_stored_nexp)
     o << "   in-acceptance charged   " << m_totals.trk_expected << " recomputed   |   "
       << m_totals.stored_nexp << " stored (N_EXPECTED)\n";
@@ -467,7 +458,7 @@ TriggerBenchmark_service::tableCells() const {
                     std::to_string(r.found), cell(r.found, r.injected, r.found, r.real_cands),
                     cell(r.trk_ok, r.real_cands, r.found_trk, r.trk_ok),
                     cell(r.cal_ok, r.real_cands, r.found_cal, r.cal_ok),
-                    cell(r.trig_ok, r.real_cands, r.found_trig, r.trig_ok), "--/--",
+                    cell(r.found_trig, r.injected, r.found_trig, r.trig_ok), "--/--",
                     m_totals.saw_stage3
                         ? cell(r.trk_matched, r.trk_expected, r.trk_reco_good, r.trk_reco_any)
                         : "--/--",
@@ -483,7 +474,7 @@ TriggerBenchmark_service::tableCells() const {
             m_totals.candidates),
        cell(m_totals.trk_ok, m_totals.real, m_totals.trk_ok, m_totals.trk_ok + m_totals.trk_fake),
        cell(m_totals.cal_ok, m_totals.real, m_totals.cal_ok, m_totals.cal_ok + m_totals.cal_fake),
-       cell(m_totals.trig_ok, m_totals.real, m_totals.trig_ok,
+       cell(m_totals.found_trig, m_totals.collisions_injected, m_totals.trig_ok,
             m_totals.trig_ok + m_totals.trig_fake),
        m_totals.saw_gnn ? cell(m_totals.gnn_passed, m_totals.gnn_frames, m_totals.gnn_passed,
                                m_totals.gnn_passed + m_totals.gnn_fake_accepted)

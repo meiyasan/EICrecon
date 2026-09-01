@@ -72,7 +72,8 @@ struct ClassRow {
   ///
   /// found_x / x_ok is the per-class purity: the shortfall is duplicate
   /// candidates claiming the same collision, which IS class-attributable
-  /// (unlike a fake, which carries no class at all).
+  /// (unlike a fake, which carries no class at all). found_trig / injected is
+  /// the trigger column: TIME && (TRACK || CALO), end to end.
   std::uint64_t found_trk = 0, found_cal = 0, found_trig = 0;
   /// Per-class purity, counted in RECONSTRUCTED OBJECTS on both sides (the
   /// efficiency columns count MC particles -- mixing the two would divide
