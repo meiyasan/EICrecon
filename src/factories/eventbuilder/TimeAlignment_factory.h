@@ -331,8 +331,14 @@ struct TimeAlignment_factory
     }
 
     if constexpr (kDeposits) {
-      if (n_slow > 0)
-        m_ts_buffer->deposit(frame_nr, std::move(slow_frame));
+      // Deposit unconditionally, even when this frame has no slow hits at all.
+      // The buffer answers "is frame N coming?" from a contiguous watermark
+      // over deposited frame numbers, and a frame that never deposits stalls
+      // that watermark forever -- every later fetch would fall back to the
+      // timeout, which is the nondeterminism the watermark exists to remove.
+      // An empty deposit is a few bytes and says "frame N happened, and it
+      // had nothing for you".
+      m_ts_buffer->deposit(frame_nr, std::move(slow_frame));
     }
   }
 };

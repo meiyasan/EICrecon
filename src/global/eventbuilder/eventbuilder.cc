@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <JANA/JApplication.h>
+#include <JANA/JEventProcessor.h>
 #include <JANA/JEventUnfolder.h>
 #include <JANA/JException.h>
 #include <JANA/JLogger.h>
@@ -553,7 +554,8 @@ struct EventUnfolder : public JEventUnfolder {
   // (sequential) unfold stage. When the pipeline cannot do that
   // (single-threaded), this falls back to 0 and prints a warning instead of
   // aborting: forward recovery improves physics but is not required.
-  int32_t m_fwd_effective = 0;
+  int32_t  m_fwd_effective = 0;
+  uint64_t m_nevents_limit = 0; ///< jana:nevents, 0 = unlimited
   void checkConfig() {
     if (m_checked_config)
       return;
@@ -587,6 +589,11 @@ struct EventUnfolder : public JEventUnfolder {
     }
     const int32_t n_fwd = forward_frames();
     m_fwd_effective = n_fwd;
+    {
+      auto* app0 = GetApplication();
+      if (app0->GetJParameterManager()->Exists("jana:nevents"))
+        m_nevents_limit = app0->GetParameterValue<uint64_t>("jana:nevents");
+    }
     if (n_fwd <= 0)
       return;
     auto* app = GetApplication();
@@ -597,13 +604,29 @@ struct EventUnfolder : public JEventUnfolder {
     int inflight = nthreads;
     if (app->GetJParameterManager()->Exists("jana:max_inflight_timeslices"))
       inflight = app->GetParameterValue<int>("jana:max_inflight_timeslices");
-    if (nthreads < 2 || inflight <= n_fwd) {
-      m_fwd_effective = 0;
-      jerr << "EventUnfolder: forward_frames=" << n_fwd
-           << " needs nthreads >= 2 and jana:max_inflight_timeslices > forward_frames"
-           << " (got nthreads=" << nthreads << ", max_inflight=" << inflight << ")"
-           << " -- running with forward_frames=0; late-tail hits spilling into"
-           << " the next frame will NOT be recovered" << jendl;
+    // >= 3, not >= 2, and that is measured, not cautious: at 2 threads the
+    // next frame's factory chain does not reliably lead the unfold that
+    // consumes its deposit, and one forward fetch per ~40 frames ends up
+    // unresolved -- it then slips through the stream-tail exemption (nothing
+    // deposited beyond the parent is exactly what a starved 2-thread
+    // pipeline looks like) and the run completes with silently different
+    // recovered hits (1800 vs 1801 in-acceptance charged on the reference
+    // sample). At >= 3 threads the deposit always leads and results are
+    // identical run to run.
+    if (nthreads < 3 || inflight <= n_fwd) {
+      // Refuse rather than silently degrade. This used to fall back to
+      // forward_frames=0 with a warning, which meant a single-threaded run
+      // computed DIFFERENT physics (no late-tail recovery) from the same
+      // command at 2+ threads -- the exact reproducibility trap this
+      // subsystem has been chasing. If single-threaded running is wanted,
+      // say so explicitly with -Peventbuilder:unfolder:forward_frames=0.
+      throw JException(
+          "EventUnfolder: forward_frames=%d needs nthreads >= 3 and "
+          "jana:max_inflight_timeslices > forward_frames (got nthreads=%d, "
+          "max_inflight=%d). Use nthreads >= 2, or set "
+          "eventbuilder:unfolder:forward_frames=0 explicitly to accept losing "
+          "late-tail cross-frame recovery.",
+          n_fwd, nthreads, inflight);
     }
   }
 
@@ -742,9 +765,35 @@ struct EventUnfolder : public JEventUnfolder {
       for (int32_t d = -n_back; d <= n_fwd; ++d) {
         if (d == 0 || (d < 0 && parent_nr < static_cast<uint64_t>(-d)))
           continue;
-        auto frame = m_ts_buffer->fetch(parent_nr + d);
-        if (frame)
+        // A frame at or past the jana:nevents limit will never be produced;
+        // skipping it here resolves the job tail from configuration instead
+        // of making the last frame ride out the fetch timeout.
+        if (d > 0 && m_nevents_limit > 0 && parent_nr + d >= m_nevents_limit)
+          continue;
+        TimesliceBuffer_service::Why why{};
+        auto frame = m_ts_buffer->fetch(parent_nr + d, why);
+        if (frame) {
           m_adjacent.push_back(std::move(*frame));
+        } else if (why == TimesliceBuffer_service::Why::Timeout) {
+          // An unresolved neighbour is only tolerable at the provable stream
+          // tail, where the successor genuinely does not exist. Anywhere
+          // else, proceeding without it would silently change this
+          // candidate's recovered hits depending on machine load -- the
+          // nondeterminism this subsystem exists to prevent -- so fail the
+          // job loudly instead. Measured at the old silent 2 s timeout: the
+          // MCParticle content of 109 of 391 child events changed between a
+          // 1-thread and a 4-thread run of identical input.
+          if (d > 0 && m_ts_buffer->nothingBeyond(parent_nr))
+            continue; // stream tail: no successor was ever produced
+          throw JException(
+              "EventUnfolder: cross-frame fetch for frame %llu (parent %llu%+d) "
+              "timed out while the pipeline was still producing frames. The "
+              "recovered hits would depend on scheduling; refusing to emit "
+              "nondeterministic physics. If this machine is genuinely this "
+              "slow, raise the TimesliceBuffer fetch timeout.",
+              static_cast<unsigned long long>(parent_nr + d),
+              static_cast<unsigned long long>(parent_nr), d);
+        }
       }
     }
 
