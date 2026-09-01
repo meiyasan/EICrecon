@@ -137,6 +137,12 @@ struct Totals {
   /// stream drained, which is exactly what makes BLIND and the STAGE 3
   /// columns wobble between otherwise identical runs.
   std::uint64_t children = 0;
+  /// The trigger thresholds the file was produced with (weights[12]/[14]).
+  /// A calo threshold of 0 means the calo term is DISABLED: cal_pass is then
+  /// true for every candidate, so the calo and trigger columns collapse onto
+  /// the time column and report the same measurement three times.
+  double trk_threshold = -1.0;
+  double cal_threshold = -1.0;
   bool saw_stage3 = false; ///< false => STAGE 3 columns render "--", not 0
   bool saw_gnn    = false;
 };
@@ -157,7 +163,9 @@ public:
 
   /// Residual histograms, shared: the tap fills them, the report plots them.
   ResolutionHists& res() { return m_res; }
-  void setInputFile(const std::string& f) { m_input_file = f; }
+  /// Records EVERY source read, not just the first: a run over many files
+  /// otherwise reports one of them as if it were the whole input.
+  void addInputFile(const std::string& f);
 
   /// Each tap registers at construction; the final table is printed when the
   /// last of them finishes, so Finish() ordering between taps does not matter.
@@ -240,7 +248,7 @@ private:
   double      m_nsigma_window = 3.0;
   std::string m_csv_path;
   std::string m_pdf_path;
-  std::string m_input_file;
+  std::vector<std::string> m_input_files;
   ResolutionHists m_res;
 };
 

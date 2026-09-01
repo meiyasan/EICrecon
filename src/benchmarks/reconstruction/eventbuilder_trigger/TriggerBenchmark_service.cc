@@ -118,6 +118,12 @@ void TriggerBenchmark_service::acquire_services(JServiceLocator* /*locator*/) {
   m_res.init(m_app, !m_pdf_path.empty());
 }
 
+void TriggerBenchmark_service::addInputFile(const std::string& f) {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  if (std::find(m_input_files.begin(), m_input_files.end(), f) == m_input_files.end())
+    m_input_files.push_back(f);
+}
+
 void TriggerBenchmark_service::registerTap() {
   std::lock_guard<std::mutex> lock(m_mutex);
   ++m_taps_registered;
@@ -154,6 +160,10 @@ void TriggerBenchmark_service::addFrame(const Totals& d,
   m_totals.gnn_fake_accepted += d.gnn_fake_accepted;
   m_totals.collisions_injected += d.collisions_injected;
   m_totals.saw_gnn = m_totals.saw_gnn || d.saw_gnn;
+  if (d.cal_threshold >= 0.0) {
+    m_totals.trk_threshold = d.trk_threshold;
+    m_totals.cal_threshold = d.cal_threshold;
+  }
 
   for (const auto& [ci, row] : per_class) {
     auto& dst = m_classes[ci];
@@ -278,7 +288,23 @@ void TriggerBenchmark_service::report(bool final_report) {
     writeCsv();
   if (final_report && !m_pdf_path.empty()) {
     ReportContext ctx;
-    ctx.input_file = m_input_file.empty() ? "(unknown)" : m_input_file;
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      ctx.input_files = m_input_files;
+    }
+    // The full invocation, straight from the kernel: reporting a hand-picked
+    // subset of parameters (as this page used to) hides exactly the flag that
+    // turns out to matter when a number looks wrong.
+    {
+      std::ifstream cl("/proc/self/cmdline", std::ios::binary);
+      std::string   raw((std::istreambuf_iterator<char>(cl)), std::istreambuf_iterator<char>());
+      for (auto& ch : raw)
+        if (ch == '\0')
+          ch = ' ';
+      while (!raw.empty() && raw.back() == ' ')
+        raw.pop_back();
+      ctx.command_line = raw;
+    }
     ctx.mode       = m_standalone ? "standalone" : "inline";
     ctx.nsigma_window = m_nsigma_window;
     {
@@ -445,6 +471,10 @@ TriggerBenchmark_service::tableCells() const {
     return half(n, d) + "/" + half(pn, pd);
   };
 
+  // With min_cal_energy = 0 the calo term accepts everything, so the calo and
+  // trigger columns are algebraically identical to time -- one measurement
+  // printed three times. Say "off" instead of repeating it.
+  const bool cal_off = (m_totals.cal_threshold == 0.0);
   std::vector<std::string> header = {"class", "inj",  "found", "time",    "track",
                                      "calo",  "trigger", "gnn", "acts-trk", "calo-island"};
   std::vector<std::vector<std::string>> rows;
@@ -487,8 +517,8 @@ TriggerBenchmark_service::tableCells() const {
                            : "--/--"});
   rows.push_back({"FAKE-ACCEPT", "--", "--", "--/--",
                   cell(m_totals.trk_fake, m_totals.fake, 0, 0),
-                  cell(m_totals.cal_fake, m_totals.fake, 0, 0),
-                  cell(m_totals.trig_fake, m_totals.fake, 0, 0),
+                  cal_off ? "off" : cell(m_totals.cal_fake, m_totals.fake, 0, 0),
+                  cal_off ? "off" : cell(m_totals.trig_fake, m_totals.fake, 0, 0),
                   m_totals.saw_gnn ? cell(m_totals.gnn_fake_accepted, m_totals.gnn_fake_frames, 0, 0)
                                    : "--/--",
                   "--/--", "--/--"});
@@ -516,6 +546,16 @@ std::vector<std::string> TriggerBenchmark_service::tableFooter() const {
   // them -- BLIND says the efficiency on this page is an over-estimate, and
   // the denominator comparison says by roughly how much the ACTS column could
   // move. A reader of the PDF alone must see both.
+  if (m_totals.cal_threshold >= 0.0) {
+    std::ostringstream t;
+    t << "thresholds   min_tracklets = " << static_cast<long>(m_totals.trk_threshold)
+      << ",  min_cal_energy = " << std::fixed << std::setprecision(3) << m_totals.cal_threshold
+      << " GeV";
+    if (m_totals.cal_threshold == 0.0)
+      t << "  -> calo term DISABLED (accepts every candidate); calo and trigger "
+           "columns would duplicate time";
+    f.push_back(t.str());
+  }
   if (m_totals.used_stored_nexp) {
     std::ostringstream n;
     n << "in-acceptance charged   " << m_totals.trk_expected << " recomputed  |  "

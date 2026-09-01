@@ -33,7 +33,8 @@ struct ClassEff {
 };
 
 struct ReportContext {
-  std::string input_file;
+  std::vector<std::string> input_files; ///< every source actually read
+  std::string              command_line; ///< the full eicrecon invocation
   std::string detector_config;
   std::string mode;      ///< "inline" / "standalone"
   std::uint64_t frames = 0;

@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <unistd.h>
 #include <sstream>
 #include <vector>
 
@@ -308,6 +309,10 @@ double pageTitle(const std::string& title, const std::string& subtitle = "",
 }
 
 /// Two-column label/value block in serif, as on c6's reference-set page.
+double drawKeyValueEnd(const std::vector<std::pair<std::string, std::string>>& kv, double y0,
+                       double dy = 0.034, double size = 0.026, double x_label = 0.20,
+                       double x_value = 0.46);
+
 void drawKeyValue(const std::vector<std::pair<std::string, std::string>>& kv, double y0,
                   double dy = 0.034, double size = 0.026, double x_label = 0.20,
                   double x_value = 0.46) {
@@ -362,6 +367,17 @@ TH1D* projection(TH2D* h, const std::string& suffix) {
          total / static_cast<double>(core_bins()) < 15.0)
     px->Rebin(2);
   return px;
+}
+
+/// Same as drawKeyValue, returning the y it finished at so a caller can put
+/// something underneath without guessing the row count.
+double drawKeyValueEnd(const std::vector<std::pair<std::string, std::string>>& kv, double y0,
+                       double dy, double size, double x_label, double x_value) {
+  drawKeyValue(kv, y0, dy, size, x_label, x_value);
+  double y = y0;
+  for (const auto& [k, v] : kv)
+    y -= (k.empty() && v.empty()) ? 0.5 * dy : dy;
+  return y - 0.5 * dy;
 }
 
 std::vector<std::string> split(const std::string& s) {
@@ -433,7 +449,10 @@ bool writePdfReport(const std::string& path, const std::string& table,
     t.DrawLatex(0.5, 0.80, "Event Builder Trigger Benchmark");
     t.SetTextFont(kFont);
     t.SetTextSize(0.034);
-    t.DrawLatex(0.5, 0.745, ("Mode: " + ctx.mode).c_str());
+    // "inline"/"standalone" alone means nothing to a reader of the PDF.
+    t.DrawLatex(0.5, 0.745, ctx.mode == "inline"
+                                ? "Measured during reconstruction (inline)"
+                                : "Measured by re-reading written output (standalone)");
     if (ctx.overall_eff >= 0.0) {
       std::ostringstream os;
       os << std::fixed << std::setprecision(1) << "Efficiency = " << 100.0 * ctx.overall_eff
@@ -454,13 +473,31 @@ bool writePdfReport(const std::string& path, const std::string& table,
     }
     kv.emplace_back("Classes seen:", std::to_string(ctx.classes.size()));
     kv.emplace_back("", "");
-    // Long dataset paths wrap instead of running off the page.
-    const std::string& in = ctx.input_file;
-    bool first = true;
-    for (std::size_t i = 0; i < in.size(); i += 46) {
-      kv.emplace_back(first ? "Input:" : "", in.substr(i, 46));
-      first = false;
+    // Every input, not just the first: a run over many files used to report
+    // one of them as if it were the whole input.
+    {
+      std::ostringstream n;
+      n << ctx.input_files.size() << " file" << (ctx.input_files.size() == 1 ? "" : "s");
+      kv.emplace_back("Input:", n.str());
     }
+    const std::size_t kShow = 3;
+    for (std::size_t f = 0; f < ctx.input_files.size() && f < kShow; ++f) {
+      const std::string& in = ctx.input_files[f];
+      // Show the tail: the leading path is common to all of them, the part
+      // that identifies the file is at the end.
+      const std::string shown = in.size() > 96 ? "..." + in.substr(in.size() - 96) : in;
+      bool first = true;
+      for (std::size_t i = 0; i < shown.size(); i += 48) {
+        kv.emplace_back("", shown.substr(i, 48));
+        first = false;
+      }
+    }
+    if (ctx.input_files.size() > kShow) {
+      std::ostringstream m;
+      m << "(+" << ctx.input_files.size() - kShow << " more)";
+      kv.emplace_back("", m.str());
+    }
+
     drawKeyValue(kv, 0.615);
 
     t.SetTextFont(kFont);
@@ -503,18 +540,53 @@ bool writePdfReport(const std::string& path, const std::string& table,
     kv.emplace_back("Compiler:", compiler_str);
     kv.emplace_back("Built:", std::string(__DATE__) + " " + __TIME__);
     kv.emplace_back("", "");
-    kv.emplace_back("Detector:", envOr("DETECTOR", "(unset)"));
-    kv.emplace_back("Config:", ctx.detector_config.empty()
-                                   ? envOr("DETECTOR_CONFIG", "(unset)")
-                                   : ctx.detector_config);
-    kv.emplace_back("", "");
+    // The actual compact FILE, not just the config name: "Config: epic" says
+    // nothing about which geometry was loaded.
     {
-      std::ostringstream os;
-      os << std::fixed << std::setprecision(1) << ctx.nsigma_window;
-      kv.emplace_back("nsigma_window:", os.str() + "   (folded into weights[T0SIGMA])");
+      const std::string dpath = envOr("DETECTOR_PATH", "");
+      const std::string dcfg  = ctx.detector_config.empty() ? envOr("DETECTOR_CONFIG", "")
+                                                            : ctx.detector_config;
+      std::string xml;
+      if (!dpath.empty() && !dcfg.empty()) {
+        const std::string cand = dpath + "/" + dcfg + ".xml";
+        if (::access(cand.c_str(), R_OK) == 0)
+          xml = cand;
+      }
+      kv.emplace_back("Geometry:", xml.empty() ? (dcfg.empty() ? "(unset)" : dcfg + " (file not found)")
+                                               : "");
+      if (!xml.empty())
+        for (std::size_t i = 0; i < xml.size(); i += 48)
+          kv.emplace_back("", xml.substr(i, 48));
+      if (!dpath.empty())
+        kv.emplace_back("DETECTOR_PATH:", dpath.size() > 48 ? "..." + dpath.substr(dpath.size() - 48)
+                                                            : dpath);
     }
-    kv.emplace_back("Mode:", ctx.mode);
-    drawKeyValue(kv, y0);
+    kv.emplace_back("", "");
+    kv.emplace_back("Mode:", ctx.mode == "inline" ? "inline (during reconstruction)"
+                                                  : "standalone (re-read of output)");
+    const double after = drawKeyValueEnd(kv, y0);
+
+    // The whole invocation. Listing selected parameters (this page used to
+    // show only nsigma_window) hides the one flag that matters when a number
+    // looks wrong.
+    if (!ctx.command_line.empty()) {
+      TLatex t;
+      t.SetNDC();
+      t.SetTextFont(kFont);
+      t.SetTextSize(0.026);
+      t.SetTextAlign(11);
+      t.DrawLatex(0.20, after, "Command:");
+      TLatex m;
+      m.SetNDC();
+      m.SetTextFont(kMono);
+      m.SetTextSize(0.016);
+      m.SetTextAlign(11);
+      double y = after - 0.030;
+      for (std::size_t i = 0; i < ctx.command_line.size() && y > 0.06; i += 78) {
+        m.DrawLatex(0.20, y, ctx.command_line.substr(i, 78).c_str());
+        y -= 0.022;
+      }
+    }
   }
   c.Print(path.c_str(), "pdf");
 

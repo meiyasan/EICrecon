@@ -166,6 +166,10 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
     if (w.size() <= w::CAL_PASS)
       continue; // pre-dates these weights; nothing to score
 
+    if (w.size() > w::CAL_THRESHOLD_CFG) {
+      d.trk_threshold = w[w::TRK_THRESHOLD_CFG];
+      d.cal_threshold = w[w::CAL_THRESHOLD_CFG];
+    }
     const bool real     = isReal(w[w::FLAG]);
     const bool trk_pass = w[w::TRK_PASS] > 0.5;
     const bool cal_pass = w[w::CAL_PASS] > 0.5;
@@ -521,6 +525,13 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
 
 void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
   const bool has_parent = event.HasParent(JEventLevel::Timeslice);
+  {
+    // Every event, not just the first: a watch-mode run rotates through files
+    // and the source changes underneath us.
+    const JEvent* se = has_parent ? &event.GetParent(JEventLevel::Timeslice) : &event;
+    if (se->GetJEventSource() != nullptr)
+      m_bench->addInputFile(se->GetJEventSource()->GetResourceName());
+  }
   if (!m_checked_parent) {
     m_checked_parent = true;
     // Name the dataset in the report rather than "(unknown)". A child
@@ -528,7 +539,7 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
     // file belongs to the parent Timeslice -- so ask the parent first.
     const JEvent* src_ev = has_parent ? &event.GetParent(JEventLevel::Timeslice) : &event;
     if (src_ev->GetJEventSource() != nullptr)
-      m_bench->setInputFile(src_ev->GetJEventSource()->GetResourceName());
+      m_bench->addInputFile(src_ev->GetJEventSource()->GetResourceName());
     if (!has_parent) {
       m_bench->markStandalone();
       m_log->info("no Timeslice parent -- standalone mode: scoring written child events only.");
