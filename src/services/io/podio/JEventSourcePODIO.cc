@@ -5,6 +5,7 @@
 // This is a JANA event source that uses PODIO to read from a ROOT
 // file created using the EDM4hep Data Model.
 
+#include <mutex>
 #include "JEventSourcePODIO.h"
 
 #include <JANA/JApplication.h>
@@ -268,7 +269,33 @@ JEventSourcePODIO::Result JEventSourcePODIO::Emit(JEvent& event) {
       // In watch mode, frame numbers restart per input file; the running
       // offset keeps eventNumber (and therefore the frame*1000+candidate
       // join key downstream) unique across the whole stream.
-      event.SetEventNumber(event_headers[0].getEventNumber() + m_watch_frame_offset);
+      std::uint64_t nr = event_headers[0].getEventNumber() + m_watch_frame_offset;
+      // Frame numbers restart whenever a new segment begins -- a second
+      // input FILE (each file gets its own source instance, so this state is
+      // deliberately PROCESS-WIDE), or campaign segments concatenated inside
+      // one file. Handing restarted numbers downstream is not cosmetic: the
+      // event builder keys its cross-frame hit buffer by frame number, so a
+      // duplicate makes it wipe state mid-run and lose the neighbours of
+      // every frame near the seam (production died at parent 98 fetching
+      // frame 97, twice, before this was traced). The offset makes the
+      // assigned numbers strictly monotonic across the whole job; it is a
+      // pure function of the header sequence and the (fixed) file order, so
+      // every run of the same inputs numbers identically. JANA drains one
+      // source before opening the next, so the sequence is well defined; the
+      // lock is belt and braces.
+      {
+        static std::mutex    s_nr_mutex;
+        static std::uint64_t s_restart_offset = 0;
+        static std::uint64_t s_last_frame_nr  = 0;
+        static bool          s_have_last      = false;
+        std::lock_guard<std::mutex> lock(s_nr_mutex);
+        if (s_have_last && nr + s_restart_offset <= s_last_frame_nr)
+          s_restart_offset = s_last_frame_nr + 1 - nr;
+        nr += s_restart_offset;
+        s_last_frame_nr = nr;
+        s_have_last     = true;
+      }
+      event.SetEventNumber(nr);
       event.SetRunNumber(event_headers[0].getRunNumber());
     }
   }

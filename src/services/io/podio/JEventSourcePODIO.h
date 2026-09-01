@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <JANA/JApplicationFwd.h>
 #include <JANA/JEventSource.h>
 #include <JANA/JEventSourceGeneratorT.h>
@@ -62,6 +63,7 @@ protected:
   std::set<std::string> m_watch_seen;        // absolute paths already processed
   int m_watch_files_done = 0;
   std::size_t m_watch_frame_offset = 0;      // keeps frame numbers unique across files
+
   std::chrono::steady_clock::time_point m_watch_last_poll{};
 
   bool WatchOpenNextFile();                  // returns true when a new file was opened
