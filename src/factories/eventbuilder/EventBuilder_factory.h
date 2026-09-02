@@ -136,12 +136,28 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
   // travels with the data (weights[12]/[14]), instead of being hardcoded a
   // second time in offline analysis.
   int    m_trig_min_tracklets  = 1;
-  double m_trig_min_cal_energy = 0.0;  // GeV; 0 = off. Not yet tuned: thresholds
-                                        // e_calo, a sum over clusters, and needs a
-                                        // background scan to set. Distinct from
-                                        // cal_min_energy_barrel/forward below, which
-                                        // floor one cluster at a time before it enters
-                                        // the sum.
+  // GeV. Set to the YR near-barrel single-photon minimum (50 MeV), the same
+  // value cal_min_energy_barrel applies per cluster: since every cluster in
+  // the e_calo sum has already cleared 50/30 MeV, this threshold means "at
+  // least one detectable cluster", which is the weakest physically meaningful
+  // calo requirement.
+  //
+  // It was 0 = off, and 0 is degenerate, not neutral: cal_pass is then true
+  // for EVERY candidate, so the calo term contributes nothing and
+  // trigger = trk_pass||cal_pass is always true. Both columns then report the
+  // time column's numbers back, three times over.
+  //
+  // Measured on 20 frames of 10x100 gold-coating mixed (the background scan
+  // this comment used to ask for):
+  //   threshold   calo eff/pur    trigger eff/pur
+  //   0.000       100.0/36.6      100.0/36.6   <- degenerate
+  //   0.050        59.5/76.7       95.3/77.5
+  //   0.500        36.8/88.7       94.0/87.4
+  //   2.000        19.9/100.0      92.1/92.5
+  // 50 MeV costs 4.7% trigger efficiency for +41 points of purity. Higher
+  // thresholds keep trading efficiency for purity; 50 MeV is chosen because
+  // it is the detector's own detectability limit rather than a tuned number.
+  double m_trig_min_cal_energy = 0.050;
 
   // Per-cluster calo gate feeding e_calo (see the calo_te loop in
   // Process()): the same formula as CalTimeCoincidence (N sigma times
@@ -439,8 +455,11 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
         "to count as tracker content. Not applied to phys_flag/emission.");
     pm->SetDefaultParameter("eventbuilder:trigger:min_cal_energy", m_trig_min_cal_energy,
         "CAL term of offline TIME && (TRK || CAL): min E_calo (GeV, weights[9]) "
-        "to count as calo content. 0 = off (UNMEASURED PLACEHOLDER). Not applied "
-        "to phys_flag/emission.");
+        "to count as calo content. Default 0.050 = YR near-barrel single-photon "
+        "minimum, i.e. 'at least one detectable cluster'. 0 = off, but 0 is "
+        "degenerate: cal_pass is then true for every candidate and the calo and "
+        "trigger columns duplicate the time column. Not applied to "
+        "phys_flag/emission unless eventbuilder:trigger:veto=1.");
     pm->SetDefaultParameter("eventbuilder:trigger:cal_nsigma", m_cal_nsigma,
         "N-sigma half-width for the per-cluster gate feeding e_calo (weights[9]): "
         "gate = N x cluster.getTimeError(). Mirrors CalTimeCoincidence::nsigma.");

@@ -271,7 +271,18 @@ void TriggerBenchmark_service::addChildFrames(std::uint64_t n) {
   // injected collisions are missing from that tap's denominators. Counting
   // them by difference is order-independent; inferring them from gaps in the
   // frame numbering was not (see EventBenchmark_processor.cc).
-  m_blind_frames = (m_totals.frames > m_child_frames) ? m_totals.frames - m_child_frames : 0;
+  // NOT a measurement any more: m_totals.frames is incremented once per
+  // processFrame() call, and processFrame() runs exactly once per frame in
+  // m_seen_frames -- the same set m_child_frames counts. The difference is
+  // therefore identically zero (verified: totals.frames=20 child_frames=20).
+  //
+  // It measured something real only while a separate Timeslice-level tap
+  // counted EVERY frame, including those that produced no child. That tap is
+  // gone -- JANA throws std::out_of_range from JEventPool::Ingest when a
+  // Timeslice tap coexists with the unfold/fold pair -- so a PhysicsEvent-only
+  // tap cannot see a childless frame at all, by construction. Reporting the
+  // difference of two counters over the same set was reporting nothing.
+  m_blind_frames = 0;
 }
 
 void TriggerBenchmark_service::addFactoryTime(const std::string& factory, double seconds) {
