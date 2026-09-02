@@ -74,7 +74,7 @@ void drawLines(const std::vector<std::string>& lines, double x0, double y0, doub
 /// Fit and leave the function attached to the histogram so it can be drawn.
 /// Returns nullptr if the fit did not produce a usable core. coreSigma() below
 /// is the measurement-only wrapper.
-TF1* fitCore(TH1* h, double& sigma, double& err) {
+TF1* fitCore(TH1* h, double& sigma, double& err, double* mu_out = nullptr) {
   if (h == nullptr || h->GetEntries() < 200)
     return nullptr;
   const double axis_lo   = h->GetXaxis()->GetXmin();
@@ -138,6 +138,8 @@ TF1* fitCore(TH1* h, double& sigma, double& err) {
     delete f;
     return nullptr;
   }
+  if (mu_out != nullptr)
+    *mu_out = mu;
   f->SetRange(mu - 3.0 * sg, mu + 3.0 * sg); // draw over what was fitted
   return f;
 }
@@ -148,6 +150,44 @@ bool coreSigma(TH1* h, double& sigma, double& err) {
     return false;
   delete f;
   return true;
+}
+
+/// Background under the resolution peak: a wide Gaussian fitted to the
+/// SIDEBANDS only, with the core region masked out. Fitting core+background
+/// together and drawing the sum tells you the fit converged; fitting the
+/// background alone and drawing only that leaves the core standing above it
+/// as visible excess, which is what a resolution plot is actually asked.
+/// Returns nullptr when the sidebands carry too little to constrain a shape.
+TF1* fitBackground(TH1* h, double mu, double core_sigma) {
+  if (h == nullptr || !(core_sigma > 0))
+    return nullptr;
+  // Mask +-3 sigma around the core; ROOT has no fit-range exclusion, so mask
+  // by zeroing a clone rather than fitting a piecewise range.
+  auto* side = static_cast<TH1D*>(h->Clone((std::string(h->GetName()) + "_side").c_str()));
+  side->SetDirectory(nullptr);
+  double kept = 0.0;
+  for (int b = 1; b <= side->GetNbinsX(); ++b) {
+    if (std::fabs(side->GetBinCenter(b) - mu) < 3.0 * core_sigma)
+      side->SetBinContent(b, 0.0);
+    else
+      kept += side->GetBinContent(b);
+  }
+  if (kept < 50.0) { // no meaningful background to describe
+    delete side;
+    return nullptr;
+  }
+  auto* bkg = new TF1((std::string(h->GetName()) + "_bkg").c_str(), "gaus",
+                      h->GetXaxis()->GetXmin(), h->GetXaxis()->GetXmax());
+  bkg->SetParameters(side->GetMaximum(), mu, 4.0 * core_sigma);
+  bkg->SetParLimits(0, 0.0, 10.0 * std::max(side->GetMaximum(), 1.0));
+  bkg->SetParLimits(2, core_sigma, 20.0 * core_sigma);
+  const int rc = side->Fit(bkg, "QNR");
+  delete side;
+  if (rc != 0 || !(bkg->GetParameter(2) > 0)) {
+    delete bkg;
+    return nullptr;
+  }
+  return bkg;
 }
 
 /// 68% containment. The position residuals are |rec - sim| and the calo
@@ -1103,12 +1143,28 @@ bool writePdfReport(const std::string& path, const std::string& table,
 
       // Show the fit that produced the number in the summary table, so the
       // reader can judge it rather than trust it.
-      double fs = 0.0, fe = 0.0;
-      if (TF1* f = fitCore(px, fs, fe); f != nullptr) {
-        f->SetLineColor(kRed + 1);
-        f->SetLineWidth(2);
-        f->SetNpx(500);
-        f->Draw("same");
+      double fs = 0.0, fe = 0.0, mu = 0.0, ts = 0.0;
+      if (TF1* f = fitCore(px, fs, fe, &mu); f != nullptr) {
+        if (TF1* bg = fitBackground(px, mu, fs); bg != nullptr) {
+          ts = bg->GetParameter(2);
+          bg->SetLineColor(kBlack);
+          bg->SetLineWidth(2);
+          bg->SetNpx(500);
+          bg->Draw("same");
+        }
+
+        // res_check conventions: black solid at 0, blue dashed at +-core sigma.
+        TLine ln;
+        ln.SetLineColor(kBlack);
+        ln.SetLineWidth(1);
+        ln.DrawLine(0, 0, 0, px->GetMaximum() * 1.05);
+        ln.SetLineColor(kBlue + 2);
+        ln.SetLineStyle(2);
+        for (int sgn = -1; sgn <= 1; sgn += 2) {
+          const double x = mu + sgn * fs;
+          if (x > px->GetXaxis()->GetXmin() && x < px->GetXaxis()->GetXmax())
+            ln.DrawLine(x, 0, x, px->GetMaximum() * 1.05);
+        }
         TLatex lab;
         lab.SetNDC();
         lab.SetTextFont(kFont);
@@ -1126,7 +1182,13 @@ bool writePdfReport(const std::string& path, const std::string& table,
             unit = " " + at.substr(ob + 1, cb - ob - 1);
         }
         std::ostringstream os;
-        os << "#sigma_{res} = " << std::fixed << std::setprecision(fs < 0.1 ? 4 : 2) << fs
+        os << "core = " << std::fixed << std::setprecision(fs < 0.1 ? 4 : 2) << fs
+           << (ts > 0.0 ? ",  bkg = " + [&] {
+                std::ostringstream b;
+                b << std::fixed << std::setprecision(ts < 0.1 ? 4 : 2) << ts;
+                return b.str();
+              }()
+                        : std::string())
            << unit;
         lab.SetTextAlign(33);
         lab.DrawLatex(0.92, 0.80, os.str().c_str());
