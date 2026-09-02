@@ -135,6 +135,15 @@ struct Totals {
   std::uint64_t trk_reco = 0, trk_reco_matched = 0;
   std::uint64_t cal_reco = 0, cal_reco_matched = 0;
 
+  /// Pileup. A candidate credited with more than one collision has MERGED
+  /// them: the trigger could not separate collisions closer together than the
+  /// coincidence window. collisions_close counts injected collisions whose
+  /// nearest neighbour in the frame is inside that window -- the population at
+  /// risk -- out of collision_gaps considered.
+  std::uint64_t multi_coll_cands = 0;
+  std::uint64_t collisions_close = 0, collision_gaps = 0;
+  double        dt_ns            = 0.0;
+
   // Collision recovery.
   std::uint64_t collisions_injected = 0;
   std::uint64_t collisions_found    = 0;

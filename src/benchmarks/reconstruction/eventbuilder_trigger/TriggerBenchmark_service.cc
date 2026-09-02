@@ -171,6 +171,11 @@ void TriggerBenchmark_service::addFrame(const Totals& d,
   m_totals.gnn_fake_frames += d.gnn_fake_frames;
   m_totals.gnn_fake_accepted += d.gnn_fake_accepted;
   m_totals.collisions_injected += d.collisions_injected;
+  m_totals.multi_coll_cands += d.multi_coll_cands;
+  m_totals.collisions_close += d.collisions_close;
+  m_totals.collision_gaps += d.collision_gaps;
+  if (d.dt_ns > 0.0)
+    m_totals.dt_ns = d.dt_ns;
   m_totals.fake_unclassed += d.fake_unclassed;
   m_totals.saw_gnn = m_totals.saw_gnn || d.saw_gnn;
   if (d.cal_threshold >= 0.0) {
@@ -632,6 +637,28 @@ std::vector<std::string> TriggerBenchmark_service::tableFooter() const {
   r << "recovery   " << m_totals.collisions_found << " / " << m_totals.collisions_injected
     << " collisions found";
   f.push_back(r.str());
+  if (m_totals.collision_gaps > 0 || m_totals.multi_coll_cands > 0) {
+    std::ostringstream p;
+    p << "pileup   " << m_totals.multi_coll_cands << " / " << m_totals.real
+      << " candidates merge >1 collision";
+    if (m_totals.real > 0)
+      p << " (" << std::fixed << std::setprecision(1)
+        << 100.0 * static_cast<double>(m_totals.multi_coll_cands) /
+               static_cast<double>(m_totals.real)
+        << "%)";
+    f.push_back(p.str());
+    // Its own line: the two together overran the footer width and were
+    // ellipsised just as the window value arrived.
+    if (m_totals.collision_gaps > 0) {
+      std::ostringstream q;
+      q << "spacing   " << std::fixed << std::setprecision(1)
+        << 100.0 * static_cast<double>(m_totals.collisions_close) /
+               static_cast<double>(m_totals.collision_gaps)
+        << "% of collisions have a neighbour within dt = " << std::setprecision(1)
+        << m_totals.dt_ns << " ns";
+      f.push_back(q.str());
+    }
+  }
   // BLIND and the recomputed-vs-stored in-acceptance count belong in the
   // REPORT, not only the console: they qualify the very numbers printed above
   // them -- BLIND says the efficiency on this page is an over-estimate, and

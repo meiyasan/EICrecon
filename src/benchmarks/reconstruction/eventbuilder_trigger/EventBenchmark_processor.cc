@@ -208,10 +208,22 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
       if (!merged)
         v.push_back(t);
     }
+    std::vector<double> all_t;
     for (const auto& [ci, v] : times) {
       per_class[ci].injected += v.size();
       d.collisions_injected += v.size();
+      all_t.insert(all_t.end(), v.begin(), v.end());
     }
+    // Spacing against the window, across ALL classes: two collisions of
+    // different classes are still two collisions, and it is their separation
+    // in TIME that decides whether the trigger can tell them apart.
+    std::sort(all_t.begin(), all_t.end());
+    for (std::size_t i = 1; i < all_t.size(); ++i) {
+      ++d.collision_gaps;
+      if (all_t[i] - all_t[i - 1] < dt)
+        ++d.collisions_close;
+    }
+    d.dt_ns = dt;
   }
 
   /// The class whose injected collision sits closest in time to a candidate's
@@ -289,6 +301,8 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
     }
     if (real && w.size() > w::TRIGCLS) {
       const auto n = static_cast<std::size_t>(w[w::TRIGCLS]);
+      if (n > 1)
+        ++d.multi_coll_cands; // this candidate merged collisions
       std::set<int> seen;
       for (std::size_t k = 0; k < n; ++k) {
         const std::size_t it = w::TRIGCLS + 1 + 2 * k; // (time, stream) pairs
