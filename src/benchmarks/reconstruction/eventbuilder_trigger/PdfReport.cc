@@ -1256,6 +1256,10 @@ bool writePdfReport(const std::string& path, const std::string& table,
   }
 
   // ---- residual grid: one row per detector, one column per quantity ------
+  // The panel title names the detector and the quantity, so it has to be
+  // readable; the style default is smaller than the axis numbers beneath it.
+  const float saved_title_size = gStyle->GetTitleFontSize();
+  gStyle->SetTitleFontSize(0.105);
   // Trackers and calo get their own pages: they do not share quantities (dx/dy
   // vs dR/energy), and interleaving them made a reader hunt for a detector.
   {
@@ -1280,6 +1284,17 @@ bool writePdfReport(const std::string& path, const std::string& table,
       }
       if (rows.empty())
         return;
+
+      // ROOT shrinks a pad title that does not fit its box, so "TOFBarrel dt"
+      // came out large and "BackwardMPGDEndcap dt" small on the same page.
+      // Size every title from the LONGEST label instead, so a page reads as
+      // one set of plots rather than a dozen different ones.
+      std::size_t longest = 1;
+      for (const auto& r : rows)
+        for (const auto& q : colnames)
+          longest = std::max(longest, r.name.size() + 1 + q.size());
+      gStyle->SetTitleFontSize(
+          std::clamp(0.105 * 17.0 / static_cast<double>(longest), 0.050, 0.105));
       // ONE DETECTOR PER ROW. Packing two detectors side by side fitted each
       // system onto a single page, but at six panels across nothing could be
       // read off them: the point of these pages is the width of a peak, and a
@@ -1313,10 +1328,10 @@ bool writePdfReport(const std::string& path, const std::string& table,
             const double py1 = yTop - ph * r;
             auto* pad = new TPad(("g" + std::to_string(r0 + r) + "_" + std::to_string(k)).c_str(),
                                  "", px0, py1 - ph, px0 + pw, py1);
-            pad->SetLeftMargin(0.19);
-            pad->SetBottomMargin(0.24);
-            pad->SetRightMargin(0.03);
-            pad->SetTopMargin(0.18);
+            pad->SetLeftMargin(0.17);
+            pad->SetBottomMargin(0.28); // the centred axis title sits here
+            pad->SetRightMargin(0.04);
+            pad->SetTopMargin(0.15);
             pad->Draw();
             pads.push_back(pad);
           }
@@ -1365,11 +1380,22 @@ bool writePdfReport(const std::string& path, const std::string& table,
             // Default ~10 divisions collide at this pad size.
             px->GetXaxis()->SetNdivisions(505);
             px->GetYaxis()->SetNdivisions(505);
-            px->GetXaxis()->SetLabelSize(0.075);
+            // Times Roman (132) everywhere, matching the body text; ROOT's
+            // default 42 is Helvetica and read as a different document.
+            px->GetXaxis()->SetLabelFont(kFont);
+            px->GetXaxis()->SetTitleFont(kFont);
+            px->GetYaxis()->SetLabelFont(kFont);
+            px->GetYaxis()->SetTitleFont(kFont);
+            px->GetXaxis()->SetLabelSize(0.070);
             px->GetXaxis()->SetTitleSize(0.085);
-            px->GetXaxis()->SetTitleOffset(1.05);
-            px->GetYaxis()->SetLabelSize(0.070);
-            px->SetTitleSize(0.095);
+            px->GetXaxis()->SetTitleOffset(1.20);
+            px->GetXaxis()->CenterTitle(true);
+            px->GetYaxis()->SetLabelSize(0.065);
+            px->GetYaxis()->CenterTitle(true);
+            // NOT px->SetTitleSize(): TH1::SetTitleSize defaults to axis "X",
+            // so it silently resized the axis title -- pushing it off the pad
+            // -- and left the panel title at the style default. The pad title
+            // is a gStyle property, set once around the grid below.
             zoomToData(px);
             px->Draw("hist");
 
@@ -1383,16 +1409,9 @@ bool writePdfReport(const std::string& path, const std::string& table,
               TLine q68;
               q68.SetLineColor(kBlue + 2);
               q68.SetLineStyle(2);
+              // The marker line carries it; the number itself belongs on the
+              // fitted-resolution page, with its unit and its uncertainty.
               q68.DrawLine(r68, 0, r68, px->GetMaximum() * 1.05);
-              TLatex lq;
-              lq.SetNDC();
-              lq.SetTextFont(kFont);
-              lq.SetTextSize(0.075);
-              lq.SetTextColor(kRed + 1);
-              lq.SetTextAlign(33);
-              std::ostringstream oq;
-              oq << "R68 " << std::fixed << std::setprecision(r68 < 0.1 ? 3 : 2) << r68;
-              lq.DrawLatex(0.96, 0.94, oq.str().c_str());
               continue;
             }
 
@@ -1417,26 +1436,11 @@ bool writePdfReport(const std::string& path, const std::string& table,
                 if (xv > px->GetXaxis()->GetXmin() && xv < px->GetXaxis()->GetXmax())
                   ln.DrawLine(xv, 0, xv, px->GetMaximum() * 1.05);
               }
-              TLatex lab;
-              lab.SetNDC();
-              lab.SetTextFont(kFont);
-              lab.SetTextSize(0.075);
-              lab.SetTextColor(kRed + 1);
-              lab.SetTextAlign(33);
-              std::ostringstream os;
-              const TAxis* ax   = px->GetXaxis();
-              const double wlim  = 0.5 * (ax->GetBinUpEdge(ax->GetLast()) -
-                                         ax->GetBinLowEdge(ax->GetFirst()));
-              os << "core " << std::fixed << std::setprecision(fs < 0.1 ? 3 : 2) << fs;
-              // A tail sitting on the upper bound is the fit running out of
-              // range, not a width: report it as unbounded rather than as 45.
-              if (ts <= 0.0)
-                os << " / 1 gaus";
-              else if (ts >= 0.98 * wlim)
-                os << " / tail >range";
-              else
-                os << " / tail " << std::setprecision(ts < 0.1 ? 3 : 2) << ts;
-              lab.DrawLatex(0.96, 0.94, os.str().c_str());
+              // No printed width here. "core 8.00 / tail >range" was two
+              // unitless numbers and a qualifier about the fit range, sitting
+              // where the title should be; the widths belong on the fitted
+              // resolution page, which carries their units. The drawn curve
+              // and the +-sigma markers say the same thing graphically.
             }
           }
         }
@@ -1453,6 +1457,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
     for (const auto& d : ResolutionHists::caloNames())
       cal.push_back({d, {"time_" + d, "space_" + d, "energy_" + d}});
     drawGrid("Calorimeter residuals", {"#Deltat", "#DeltaR", "#DeltaE/E"}, cal);
+    gStyle->SetTitleFontSize(saved_title_size);
   }
 
   c.Clear();
