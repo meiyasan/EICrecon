@@ -152,6 +152,56 @@ bool coreSigma(TH1* h, double& sigma, double& err) {
   return true;
 }
 
+/// Two Gaussians sharing one mean: a narrow core (the resolution) and a wide
+/// tail. This is the traditional two-scale model for a residual -- a single
+/// Gaussian is dragged wide by the tail and reports neither. Returns the
+/// fitted TF1 with core/tail widths and the tail-only amplitude, so the caller
+/// can draw the TAIL alone and leave the core as visible excess above it.
+/// sigma_core <= sigma_tail by construction.
+TF1* fitDoubleGaussian(TH1* h, double& core, double& tail, double& mu, double& tail_amp) {
+  if (h == nullptr || h->GetEntries() < 100)
+    return nullptr;
+  const double lo = h->GetXaxis()->GetXmin();
+  const double hi = h->GetXaxis()->GetXmax();
+  const double w  = 0.5 * (hi - lo);
+  const double bw = h->GetBinWidth(1);
+  const double s0 = h->GetRMS();
+  const double a0 = h->GetMaximum();
+  const double m0 = h->GetBinCenter(h->GetMaximumBin());
+  if (!(s0 > 0) || !(a0 > 0))
+    return nullptr;
+
+  // Shared mean (par 4): the two components describe one population, so
+  // letting the means float independently fits two unrelated peaks instead.
+  auto* f = new TF1((std::string(h->GetName()) + "_dg").c_str(),
+                    "[0]*exp(-0.5*((x-[4])/[1])^2)+[2]*exp(-0.5*((x-[4])/[3])^2)", lo, hi);
+  f->SetParameters(0.7 * a0, 0.5 * s0, 0.3 * a0, 3.0 * s0, m0);
+  f->SetParLimits(0, 0.0, 10.0 * a0);
+  f->SetParLimits(1, bw, w);
+  f->SetParLimits(2, 0.0, 10.0 * a0);
+  f->SetParLimits(3, bw, w);
+  f->SetParLimits(4, m0 - s0, m0 + s0);
+  if (h->Fit(f, "QNR") != 0) {
+    delete f;
+    return nullptr;
+  }
+  double a1 = f->GetParameter(0), s1 = std::fabs(f->GetParameter(1));
+  double a2 = f->GetParameter(2), s2 = std::fabs(f->GetParameter(3));
+  mu        = f->GetParameter(4);
+  if (!(s1 > 0) || !(s2 > 0)) {
+    delete f;
+    return nullptr;
+  }
+  if (s1 > s2) { // convention: first component is the core
+    std::swap(a1, a2);
+    std::swap(s1, s2);
+  }
+  core     = s1;
+  tail     = s2;
+  tail_amp = a2;
+  return f;
+}
+
 /// Background under the resolution peak: a wide Gaussian fitted to the
 /// SIDEBANDS only, with the core region masked out. Fitting core+background
 /// together and drawing the sum tells you the fit converged; fitting the
@@ -348,6 +398,11 @@ double pageTitle(const std::string& title, const std::string& subtitle = "",
   return next - 0.045;
 }
 
+/// Longest monospace string that fits between x and the right margin.
+int monoFit(double x, double size, double right = 0.94) {
+  return std::max(8, static_cast<int>((right - x) / (0.62 * size)));
+}
+
 /// Two-column label/value block in serif, as on c6's reference-set page.
 double drawKeyValueEnd(const std::vector<std::pair<std::string, std::string>>& kv, double y0,
                        double dy = 0.034, double size = 0.026, double x_label = 0.20,
@@ -418,6 +473,22 @@ double drawKeyValueEnd(const std::vector<std::pair<std::string, std::string>>& k
   for (const auto& [k, v] : kv)
     y -= (k.empty() && v.empty()) ? 0.5 * dy : dy;
   return y - 0.5 * dy;
+}
+
+/// Clip the x axis to the central 99% of the entries. The booked ranges are
+/// deliberately generous, so drawn raw most panels are a spike on an empty
+/// axis.
+void zoomToData(TH1* px) {
+  double q[2] = {0, 0}, pr[2] = {0.005, 0.995};
+  px->GetQuantiles(2, q, pr);
+  if (!(q[1] > q[0]))
+    return;
+  const double pad = 0.10 * (q[1] - q[0]);
+  double lo = q[0] - pad, hi = q[1] + pad;
+  if (px->GetXaxis()->GetXmin() >= 0.0)
+    lo = std::max(0.0, lo);
+  px->GetXaxis()->SetRangeUser(std::max(lo, px->GetXaxis()->GetXmin()),
+                               std::min(hi, px->GetXaxis()->GetXmax()));
 }
 
 std::vector<std::string> split(const std::string& s) {
@@ -523,12 +594,15 @@ bool writePdfReport(const std::string& path, const std::string& table,
       const std::string& in = ctx.input_files[f];
       // Show the tail: the leading path is common to all of them, the part
       // that identifies the file is at the end.
-      const std::string shown = in.size() > 96 ? "..." + in.substr(in.size() - 96) : in;
-      bool first = true;
-      for (std::size_t i = 0; i < shown.size(); i += 48) {
-        kv.emplace_back("", shown.substr(i, 48));
-        first = false;
-      }
+      // Wrap at the width that actually fits between the value column and the
+      // right margin; a fixed character count overflowed the page.
+      const int    wrap  = monoFit(0.46, 0.026);
+      const std::string shown =
+          in.size() > static_cast<std::size_t>(3 * wrap)
+              ? "..." + in.substr(in.size() - static_cast<std::size_t>(3 * wrap))
+              : in;
+      for (std::size_t i = 0; i < shown.size(); i += wrap)
+        kv.emplace_back("", shown.substr(i, wrap));
     }
     if (ctx.input_files.size() > kShow) {
       std::ostringstream m;
@@ -592,9 +666,11 @@ bool writePdfReport(const std::string& path, const std::string& table,
       }
       kv.emplace_back("Geometry:", xml.empty() ? (dcfg.empty() ? "(unset)" : dcfg + " (file not found)")
                                                : "");
-      if (!xml.empty())
-        for (std::size_t i = 0; i < xml.size(); i += 48)
-          kv.emplace_back("", xml.substr(i, 48));
+      if (!xml.empty()) {
+        const int w = monoFit(0.46, 0.026);
+        for (std::size_t i = 0; i < xml.size(); i += w)
+          kv.emplace_back("", xml.substr(i, w));
+      }
       if (!dpath.empty())
         kv.emplace_back("DETECTOR_PATH:", dpath.size() > 48 ? "..." + dpath.substr(dpath.size() - 48)
                                                             : dpath);
@@ -618,10 +694,37 @@ bool writePdfReport(const std::string& path, const std::string& table,
       m.SetTextFont(kMono);
       m.SetTextSize(0.016);
       m.SetTextAlign(11);
+      // Break on argument boundaries, not mid-token: a command chopped every
+      // 78 characters splits flags and paths and is unreadable. Continuations
+      // are indented so the argument list reads as one block.
+      const int         wrap = monoFit(0.22, 0.016);
+      std::vector<std::string> lines;
+      {
+        std::istringstream is(ctx.command_line);
+        std::string        tok, cur;
+        while (is >> tok) {
+          if (!cur.empty() && cur.size() + 1 + tok.size() > static_cast<std::size_t>(wrap)) {
+            lines.push_back(cur);
+            cur.clear();
+          }
+          if (tok.size() > static_cast<std::size_t>(wrap)) { // a very long path
+            if (!cur.empty()) {
+              lines.push_back(cur);
+              cur.clear();
+            }
+            for (std::size_t i = 0; i < tok.size(); i += wrap)
+              lines.push_back(tok.substr(i, wrap));
+            continue;
+          }
+          cur += (cur.empty() ? "" : " ") + tok;
+        }
+        if (!cur.empty())
+          lines.push_back(cur);
+      }
       double y = after - 0.030;
-      for (std::size_t i = 0; i < ctx.command_line.size() && y > 0.06; i += 78) {
-        m.DrawLatex(0.20, y, ctx.command_line.substr(i, 78).c_str());
-        y -= 0.022;
+      for (std::size_t i = 0; i < lines.size() && y > 0.06; ++i) {
+        m.DrawLatex(i == 0 ? 0.20 : 0.22, y, lines[i].c_str());
+        y -= 0.021;
       }
     }
   }
@@ -926,8 +1029,13 @@ bool writePdfReport(const std::string& path, const std::string& table,
         // Anchored to the rows actually drawn: a fixed constant here put the
         // footer on top of the last few class rows once the rows grew.
         double y = kTableYTop - dY * static_cast<double>(body.size() + 2.5);
+        const int fw = monoFit(0.055, std::min(0.020, sz * 1.3));
         for (const auto& line : ctx.footer) {
-          f.DrawLatex(0.055, y, line.c_str());
+          f.DrawLatex(0.055, y,
+                      (line.size() > static_cast<std::size_t>(fw)
+                           ? line.substr(0, static_cast<std::size_t>(fw) - 1) + "…"
+                           : line)
+                          .c_str());
           y -= dY * 0.85;
         }
         f.SetTextColor(static_cast<Color_t>(kGray + 2));
@@ -1032,169 +1140,132 @@ bool writePdfReport(const std::string& path, const std::string& table,
     c.Print(path.c_str(), "pdf");
   }
 
-  // ---- pages 4+: plots, grouped by detector, four per page -----------------
-  // Detector order follows the wiring order, and each detector's own
-  // time/space/energy plots stay adjacent, so a page never mixes the tail of
-  // one detector with the head of another unless the page is full.
-  std::vector<TH2D*> ordered;
-  auto push = [&](const std::string& key) {
-    auto it = hists.find(key);
-    if (it != hists.end() && it->second != nullptr && it->second->GetEntries() > 0)
-      ordered.push_back(it->second);
-  };
-  // Candidate-level timing leads: it characterises the trigger itself, not a
-  // single subsystem.
-  push("t0_residual");
-  push("t0_sigma");
-  push("t0_pull");
-  for (const auto& d : ResolutionHists::trackerNames()) {
-    push("time_" + d);
-    push("space_" + d);
-    push("radial_" + d);
-  }
-  for (const auto& s : ResolutionHists::caloNames()) {
-    push("time_" + s);
-    push("space_" + s);
-    push("energy_" + s);
-  }
+  // ---- residual grid: one row per detector, one column per quantity ------
+  // Trackers and calo get their own pages: they do not share quantities (dx/dy
+  // vs dR/energy), and interleaving them made a reader hunt for a detector.
+  {
+    struct Panel { std::string key; };
+    struct Row { std::string name; std::vector<std::string> keys; };
 
-  for (std::size_t i = 0; i < ordered.size(); i += 4) {
-    c.Clear();
-    {
-      TLatex pt;
-      pt.SetNDC();
-      pt.SetTextAlign(22);
-      pt.SetTextFont(kFontBold);
-      pt.SetTextSize(0.040);
-      pt.DrawLatex(0.5, 0.945, "Residual distributions");
-    }
-    // Square pads. Divide(2,2) on a portrait canvas gives tall pads that
-    // stretch a residual peak vertically; these NDC boxes are sized so
-    // width*canvas_w == height*canvas_h.
-    const double pw = 0.44;
-    const double ph = pw * static_cast<double>(kCanvasW) / static_cast<double>(kCanvasH);
-    const double xs[4] = {0.045, 0.525, 0.045, 0.525};
-    const double ys[4] = {0.55, 0.55, 0.55 - ph - 0.06, 0.55 - ph - 0.06};
-    std::vector<TPad*> pads;
-    for (std::size_t k = 0; k < 4 && i + k < ordered.size(); ++k) {
-      auto* pad = new TPad(("p" + std::to_string(i + k)).c_str(), "", xs[k], ys[k], xs[k] + pw,
-                           ys[k] + ph);
-      pad->SetLeftMargin(0.16);
-      pad->SetBottomMargin(0.14);
-      pad->SetRightMargin(0.05);
-      pad->SetTopMargin(0.10);
-      pad->Draw();
-      pads.push_back(pad);
-    }
-    for (std::size_t k = 0; k < pads.size(); ++k) {
-      pads[k]->cd();
-      // Project out the class axis for the shape, and keep the 2D underneath
-      // for anyone opening the ROOT file: the PDF shows the projection, which
-      // is what a resolution is read off.
-      TH2D* h  = ordered[i + k];
-      auto* px = projection(h, "_px");
-      if (px == nullptr)
-        continue;
-      // Count into the title. What is counted differs by histogram: the
-      // candidate-level t0 plots have one entry per trigger, the detector
-      // plots one per hit or cluster -- labelling them all "#trigger" would
-      // be wrong by orders of magnitude on the hit plots.
-      const std::string key = h->GetName();
-      const char* what = (key.rfind("t0_", 0) == 0)
-                             ? "#trigger"
-                             : ((key.rfind("energy_", 0) == 0 || key.rfind("space_EcalB", 0) == 0)
-                                    ? "#cluster"
-                                    : "#hits");
-      px->SetTitle((std::string(h->GetTitle()) + "   " + what + " = " +
-                    std::to_string(static_cast<long>(h->GetEntries())))
-                       .c_str());
-      px->SetLineWidth(2);
+    auto drawGrid = [&](const std::string& title, const std::vector<std::string>& colnames,
+                        const std::vector<Row>& rows) {
+      constexpr std::size_t kRowsPerPage = 4; // 4 rows x 3 columns = 12 panels
+      const std::size_t ncol = colnames.size();
+      for (std::size_t r0 = 0; r0 < rows.size(); r0 += kRowsPerPage) {
+        const std::size_t nrow = std::min(kRowsPerPage, rows.size() - r0);
+        c.Clear();
+        TLatex pt;
+        pt.SetNDC();
+        pt.SetTextAlign(22);
+        pt.SetTextFont(kFontBold);
+        pt.SetTextSize(0.032);
+        pt.DrawLatex(0.5, 0.960, title.c_str());
+        pt.SetTextFont(kFont);
+        pt.SetTextSize(0.020);
+        pt.DrawLatex(0.5, 0.932, "curve = fitted tail (wide) component only");
 
-      // Zoom the x axis onto the data. The booked ranges are deliberately
-      // generous -- wide enough for the coincidence gate, fine enough for a
-      // ps-scale TOF core -- so drawn raw, most plots are a spike against a
-      // decade of empty axis. Clip to the central 99% and pad, which keeps the
-      // core AND the pedestal shoulders visible whatever the detector.
-      double q[2]     = {0.0, 0.0};
-      double probs[2] = {0.005, 0.995};
-      px->GetQuantiles(2, q, probs);
-      double lo = q[0];
-      double hi = q[1];
-      if (hi > lo) {
-        const double pad = 0.10 * (hi - lo);
-        lo -= pad;
-        hi += pad;
-        // Positive-definite residuals start at zero; do not invent a negative
-        // axis for |rec-sim| or dR.
-        if (px->GetXaxis()->GetXmin() >= 0.0)
-          lo = std::max(0.0, lo);
-        px->GetXaxis()->SetRangeUser(std::max(lo, px->GetXaxis()->GetXmin()),
-                                     std::min(hi, px->GetXaxis()->GetXmax()));
+        const double x0 = 0.070, x1 = 0.980, yTop = 0.900, yBot = 0.030;
+        const double pw = (x1 - x0) / ncol;
+        const double ph = (yTop - yBot) / kRowsPerPage;
+        std::vector<TPad*> pads;
+        for (std::size_t r = 0; r < nrow; ++r) {
+          for (std::size_t k = 0; k < ncol; ++k) {
+            const double px0 = x0 + pw * k;
+            const double py1 = yTop - ph * r;
+            auto* pad = new TPad(("g" + std::to_string(r0 + r) + "_" + std::to_string(k)).c_str(),
+                                 "", px0, py1 - ph, px0 + pw, py1);
+            pad->SetLeftMargin(0.19);
+            pad->SetBottomMargin(0.24);
+            pad->SetRightMargin(0.03);
+            pad->SetTopMargin(0.18);
+            pad->Draw();
+            pads.push_back(pad);
+          }
+        }
+        std::size_t ip = 0;
+        for (std::size_t r = 0; r < nrow; ++r) {
+          for (std::size_t k = 0; k < ncol; ++k, ++ip) {
+            pads[ip]->cd();
+            auto it = hists.find(rows[r0 + r].keys[k]);
+            if (it == hists.end() || it->second == nullptr || it->second->GetEntries() == 0) {
+              // Say WHY a panel is blank rather than leaving dead space.
+              TLatex e;
+              e.SetNDC();
+              e.SetTextAlign(22);
+              e.SetTextFont(kFont);
+              e.SetTextSize(0.13);
+              e.SetTextColor(static_cast<Color_t>(kGray + 1));
+              e.DrawLatex(0.5, 0.55, "no data");
+              e.SetTextSize(0.10);
+              e.DrawLatex(0.5, 0.35, (rows[r0 + r].name + " " + colnames[k]).c_str());
+              continue;
+            }
+            auto* px = projection(it->second, "_g");
+            px->SetTitle((rows[r0 + r].name + " " + colnames[k]).c_str());
+            px->SetLineWidth(2);
+            px->SetFillColorAlpha(kAzure + 1, 0.35);
+            // Default ~10 divisions collide at this pad size.
+            px->GetXaxis()->SetNdivisions(505);
+            px->GetYaxis()->SetNdivisions(505);
+            px->GetXaxis()->SetLabelSize(0.075);
+            px->GetXaxis()->SetTitleSize(0.085);
+            px->GetXaxis()->SetTitleOffset(1.05);
+            px->GetYaxis()->SetLabelSize(0.070);
+            px->SetTitleSize(0.095);
+            zoomToData(px);
+            px->Draw("hist");
+
+            double fs = 0, ts = 0, mu = 0, ta = 0;
+            if (TF1* f = fitDoubleGaussian(px, fs, ts, mu, ta); f != nullptr) {
+              auto* bg = new TF1((std::string(px->GetName()) + "_tl").c_str(), "gaus",
+                                 px->GetXaxis()->GetXmin(), px->GetXaxis()->GetXmax());
+              bg->SetParameters(ta, mu, ts);
+              bg->SetLineColor(kBlack);
+              bg->SetLineWidth(2);
+              bg->SetNpx(400);
+              bg->Draw("same");
+              TLine ln;
+              ln.SetLineColor(kBlack);
+              ln.DrawLine(0, 0, 0, px->GetMaximum() * 1.05);
+              ln.SetLineColor(kBlue + 2);
+              ln.SetLineStyle(2);
+              for (int sg = -1; sg <= 1; sg += 2) {
+                const double xv = mu + sg * fs;
+                if (xv > px->GetXaxis()->GetXmin() && xv < px->GetXaxis()->GetXmax())
+                  ln.DrawLine(xv, 0, xv, px->GetMaximum() * 1.05);
+              }
+              TLatex lab;
+              lab.SetNDC();
+              lab.SetTextFont(kFont);
+              lab.SetTextSize(0.075);
+              lab.SetTextColor(kRed + 1);
+              lab.SetTextAlign(33);
+              std::ostringstream os;
+              const double wlim = 0.5 * (px->GetXaxis()->GetXmax() - px->GetXaxis()->GetXmin());
+              os << "core " << std::fixed << std::setprecision(fs < 0.1 ? 3 : 2) << fs;
+              // A tail sitting on the upper bound is the fit running out of
+              // range, not a width: report it as unbounded rather than as 45.
+              if (ts >= 0.98 * wlim)
+                os << " / tail >range";
+              else
+                os << " / tail " << std::setprecision(ts < 0.1 ? 3 : 2) << ts;
+              lab.DrawLatex(0.96, 0.94, os.str().c_str());
+            }
+          }
+        }
+        c.Print(path.c_str(), "pdf");
       }
-      px->GetXaxis()->SetLabelSize(0.035);
-      px->GetXaxis()->SetLabelFont(kFont);
-      px->GetXaxis()->SetTitleSize(0.042);
-      px->GetXaxis()->SetTitleFont(kFont);
-      px->GetYaxis()->SetLabelSize(0.035);
-      px->GetYaxis()->SetLabelFont(kFont);
-      px->SetTitleFont(kFontBold); // bold serif pad title
-      px->SetTitleSize(0.048);
-      px->Draw("hist");
+    };
 
-      // Show the fit that produced the number in the summary table, so the
-      // reader can judge it rather than trust it.
-      double fs = 0.0, fe = 0.0, mu = 0.0, ts = 0.0;
-      if (TF1* f = fitCore(px, fs, fe, &mu); f != nullptr) {
-        if (TF1* bg = fitBackground(px, mu, fs); bg != nullptr) {
-          ts = bg->GetParameter(2);
-          bg->SetLineColor(kBlack);
-          bg->SetLineWidth(2);
-          bg->SetNpx(500);
-          bg->Draw("same");
-        }
+    std::vector<Row> trk;
+    for (const auto& d : ResolutionHists::trackerNames())
+      trk.push_back({d, {"time_" + d, "dx_" + d, "dy_" + d}});
+    drawGrid("Tracker residuals", {"#Deltat", "#Deltax", "#Deltay"}, trk);
 
-        // res_check conventions: black solid at 0, blue dashed at +-core sigma.
-        TLine ln;
-        ln.SetLineColor(kBlack);
-        ln.SetLineWidth(1);
-        ln.DrawLine(0, 0, 0, px->GetMaximum() * 1.05);
-        ln.SetLineColor(kBlue + 2);
-        ln.SetLineStyle(2);
-        for (int sgn = -1; sgn <= 1; sgn += 2) {
-          const double x = mu + sgn * fs;
-          if (x > px->GetXaxis()->GetXmin() && x < px->GetXaxis()->GetXmax())
-            ln.DrawLine(x, 0, x, px->GetMaximum() * 1.05);
-        }
-        TLatex lab;
-        lab.SetNDC();
-        lab.SetTextFont(kFont);
-        lab.SetTextSize(0.045);
-        lab.SetTextColor(kRed + 1);
-        // Unit lifted from the x-axis title's "[...]", so the label cannot
-        // drift from the axis it is describing. Dimensionless plots (pull,
-        // relative energy) simply have none.
-        std::string unit;
-        {
-          const std::string at = px->GetXaxis()->GetTitle();
-          const auto        ob = at.rfind('[');
-          const auto        cb = at.rfind(']');
-          if (ob != std::string::npos && cb != std::string::npos && cb > ob + 1)
-            unit = " " + at.substr(ob + 1, cb - ob - 1);
-        }
-        std::ostringstream os;
-        os << "core = " << std::fixed << std::setprecision(fs < 0.1 ? 4 : 2) << fs
-           << (ts > 0.0 ? ",  bkg = " + [&] {
-                std::ostringstream b;
-                b << std::fixed << std::setprecision(ts < 0.1 ? 4 : 2) << ts;
-                return b.str();
-              }()
-                        : std::string())
-           << unit;
-        lab.SetTextAlign(33);
-        lab.DrawLatex(0.92, 0.80, os.str().c_str());
-      }
-    }
-    c.Print(path.c_str(), "pdf");
+    std::vector<Row> cal;
+    for (const auto& d : ResolutionHists::caloNames())
+      cal.push_back({d, {"time_" + d, "space_" + d, "energy_" + d}});
+    drawGrid("Calorimeter residuals", {"#Deltat", "#DeltaR", "#DeltaE/E"}, cal);
   }
 
   c.Clear();

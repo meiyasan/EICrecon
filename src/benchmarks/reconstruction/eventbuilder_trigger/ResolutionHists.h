@@ -62,6 +62,9 @@ public:
   /// shows up here as a fixed offset -- geometry, not resolution. Kept
   /// separate so it cannot contaminate the number above.
   void fillTrackerSpaceRadial(std::size_t det, int cls, double dr_mm);
+  /// Cartesian residuals, the quantities res_check plots: one column each.
+  void fillTrackerX(std::size_t det, int cls, double dx_mm);
+  void fillTrackerY(std::size_t det, int cls, double dy_mm);
   void fillCaloTime(std::size_t sys, int cls, double dt_ns);
   void fillCaloAngle(std::size_t sys, int cls, double dr);
   void fillCaloEnergy(std::size_t sys, int cls, double frac);

@@ -420,6 +420,10 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
         const double r_rec = std::hypot(static_cast<double>(r.x), static_cast<double>(r.y));
         const double r_sim = std::hypot(static_cast<double>(sp.x), static_cast<double>(sp.y));
         m_bench->res().fillTrackerSpaceRadial(d, cls, r_rec - r_sim);
+        m_bench->res().fillTrackerX(d, cls,
+                                    static_cast<double>(r.x) - static_cast<double>(sp.x));
+        m_bench->res().fillTrackerY(d, cls,
+                                    static_cast<double>(r.y) - static_cast<double>(sp.y));
 
         double dphi = std::atan2(static_cast<double>(r.y), static_cast<double>(r.x)) -
                       std::atan2(static_cast<double>(sp.y), static_cast<double>(sp.x));

@@ -149,6 +149,26 @@ void ResolutionHists::fillTrackerSpaceRadial(std::size_t det, int cls, double dr
       ->Fill(dr_mm * 1000.0, cls);
 }
 
+void ResolutionHists::fillTrackerX(std::size_t det, int cls, double dx_mm) {
+  if (!enabled() || det >= trackerNames().size() || cls < 0)
+    return;
+  const bool   fine  = (det >= 6 && det < 10);
+  const double range = fine ? 0.5 : 6.0;
+  get("dx_" + trackerNames()[det], trackerNames()[det] + " #Deltax",
+      "x_{rec} - x_{sim} [mm]", fine ? 500 : 600, -range, range)
+      ->Fill(dx_mm, cls);
+}
+
+void ResolutionHists::fillTrackerY(std::size_t det, int cls, double dy_mm) {
+  if (!enabled() || det >= trackerNames().size() || cls < 0)
+    return;
+  const bool   fine  = (det >= 6 && det < 10);
+  const double range = fine ? 0.5 : 6.0;
+  get("dy_" + trackerNames()[det], trackerNames()[det] + " #Deltay",
+      "y_{rec} - y_{sim} [mm]", fine ? 500 : 600, -range, range)
+      ->Fill(dy_mm, cls);
+}
+
 void ResolutionHists::fillCaloTime(std::size_t sys, int cls, double dt_ns) {
   if (!enabled() || sys >= caloNames().size() || cls < 0)
     return;
