@@ -171,6 +171,7 @@ void TriggerBenchmark_service::addFrame(const Totals& d,
   m_totals.gnn_fake_frames += d.gnn_fake_frames;
   m_totals.gnn_fake_accepted += d.gnn_fake_accepted;
   m_totals.collisions_injected += d.collisions_injected;
+  m_totals.fake_unclassed += d.fake_unclassed;
   m_totals.saw_gnn = m_totals.saw_gnn || d.saw_gnn;
   if (d.cal_threshold >= 0.0) {
     m_totals.trk_threshold = d.trk_threshold;
@@ -180,6 +181,7 @@ void TriggerBenchmark_service::addFrame(const Totals& d,
   for (const auto& [ci, row] : per_class) {
     auto& dst = m_classes[ci];
     dst.injected += row.injected;
+    dst.fake += row.fake;
     dst.candidates += row.candidates;
     dst.real_cands += row.real_cands;
     dst.trk_ok += row.trk_ok;
@@ -562,7 +564,9 @@ TriggerBenchmark_service::tableCells() const {
     const ClassRow& r = it->second;
     rows.push_back({std::string(className(ci)), std::to_string(r.injected),
                     std::to_string(r.found),
-                    "n/a", // a fake carries no class; the count is on TOTAL
+                    // Not the fake's own class -- it has none -- but the class
+                    // it fired next to. See ClassRow::fake.
+                    std::to_string(r.fake),
                     cell(r.found, r.injected, r.found, r.real_cands),
                     cell(r.trk_ok, r.real_cands, r.found_trk, r.trk_ok),
                     cell(r.cal_ok, r.real_cands, r.found_cal, r.cal_ok),

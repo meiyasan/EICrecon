@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <set>
+#include <unordered_set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -61,6 +62,12 @@ private:
   double accumulateCallGraph(const JEvent& ev);
 
   bool m_warned_fetch = false;
+
+  /// Truth already counted for the frame in flight, so a collision claimed by
+  /// several candidates contributes ONE denominator entry. Children arrive
+  /// ordered, so one frame's worth is all that needs keeping.
+  std::uint64_t                     m_truth_frame = ~0ULL;
+  std::unordered_set<std::uint64_t> m_truth_seen, m_truth_matched;
   double m_event_secs = 0.0; ///< factory time for the event in flight
 
   /// The 9 wired calorimeter association collections. EcalLumiSpec has no

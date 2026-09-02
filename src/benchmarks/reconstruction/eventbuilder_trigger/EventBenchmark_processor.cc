@@ -79,6 +79,27 @@ constexpr double kEFloorForward  = 0.030; // GeV, 1 <= |eta| < 4
 
 /// The contributing sim hit chosen for one raw hit: the largest energy
 /// deposit among the links pointing at it.
+/// A stable identity for an MCParticle ACROSS the children of one frame. The
+/// unfolder copies the same generated particle into every candidate whose gate
+/// covers it, and podio object indices are per-collection, so kinematics is
+/// the only thing two copies share. Quantised at 1 eV and 1 ps: far finer than
+/// the separation between two distinct generated particles, far coarser than
+/// float noise on a copy.
+std::uint64_t truthKey(const edm4hep::MCParticle& p) {
+  const auto    m   = p.getMomentum();
+  std::uint64_t h   = 1469598103934665603ULL;
+  const auto    mix = [&h](std::int64_t v) {
+    h ^= static_cast<std::uint64_t>(v);
+    h *= 1099511628211ULL;
+  };
+  mix(p.getPDG());
+  mix(std::llround(static_cast<double>(m.x) * 1e9));
+  mix(std::llround(static_cast<double>(m.y) * 1e9));
+  mix(std::llround(static_cast<double>(m.z) * 1e9));
+  mix(std::llround(static_cast<double>(p.getTime()) * 1e3));
+  return h;
+}
+
 struct Truth {
   int                    cls = -1;
   edm4hep::SimTrackerHit sim;
@@ -160,6 +181,53 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
       dt = w[fw::DT];
   }
 
+  // -- injected collisions, per class ---------------------------------------
+  // Same dedup rule as EventBuilder_factory's collision_times loop: one entry
+  // per (class, time) within the frame's own dt. Counted from the FRAME's
+  // MCParticles, so collisions in frames that produced no candidate still
+  // reach the denominator. Built BEFORE the candidate loop because a fake is
+  // attributed to the nearest of these.
+  const auto* mcps = tryGet<edm4hep::MCParticle>(parent, "MCParticles", m_warned_fetch, m_log.get());
+  std::map<int, std::vector<double>> times;
+  if (mcps != nullptr) {
+    for (const auto& p : *mcps) {
+      const int gs = p.getGeneratorStatus();
+      if (!isStablePhysics(gs))
+        continue;
+      const int ci = classIndexOfStatus(gs);
+      if (ci < 0)
+        continue;
+      auto&        v = times[ci];
+      const double t = p.getTime();
+      bool         merged = false;
+      for (double e : v)
+        if (std::abs(e - t) < dt) {
+          merged = true;
+          break;
+        }
+      if (!merged)
+        v.push_back(t);
+    }
+    for (const auto& [ci, v] : times) {
+      per_class[ci].injected += v.size();
+      d.collisions_injected += v.size();
+    }
+  }
+
+  /// The class whose injected collision sits closest in time to a candidate's
+  /// window centre; -1 when the frame injected nothing at all.
+  const auto nearest_class = [&](double t0) {
+    int    best_ci = -1;
+    double best_dt = 0.0;
+    for (const auto& [ci, v] : times)
+      for (double t : v)
+        if (const double gap = std::abs(t - t0); best_ci < 0 || gap < best_dt) {
+          best_ci = ci;
+          best_dt = gap;
+        }
+    return best_ci;
+  };
+
   // -- STAGE 1: per-candidate counters --------------------------------------
   bool frame_has_real = false;
   for (const auto& c : *cands) {
@@ -187,6 +255,14 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
         ++d.trig_ok;
     } else {
       ++d.fake;
+      // A fake is credited with no collision, so it has no class of its own.
+      // It DID fire somewhere, though, and which physics it fired next to is
+      // the actionable number -- without it the fake column is a single
+      // stream-wide total that says nothing about where the rate comes from.
+      if (const int ci = nearest_class(w.size() > w::T0 ? w[w::T0] : 0.0); ci >= 0)
+        ++per_class[ci].fake;
+      else
+        ++d.fake_unclassed;
       if (trk_pass)
         ++d.trk_fake;
       if (cal_pass)
@@ -259,38 +335,6 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
         if (passed)
           ++d.gnn_fake_accepted;
       }
-    }
-  }
-
-  // -- injected collisions, per class ---------------------------------------
-  // Same dedup rule as EventBuilder_factory's collision_times loop: one entry
-  // per (class, time) within the frame's own dt. Counted from the FRAME's
-  // MCParticles, so collisions in frames that produced no candidate still
-  // reach the denominator.
-  const auto* mcps = tryGet<edm4hep::MCParticle>(parent, "MCParticles", m_warned_fetch, m_log.get());
-  if (mcps != nullptr) {
-    std::map<int, std::vector<double>> times;
-    for (const auto& p : *mcps) {
-      const int gs = p.getGeneratorStatus();
-      if (!isStablePhysics(gs))
-        continue;
-      const int ci = classIndexOfStatus(gs);
-      if (ci < 0)
-        continue;
-      auto&        v = times[ci];
-      const double t = p.getTime();
-      bool         merged = false;
-      for (double e : v)
-        if (std::abs(e - t) < dt) {
-          merged = true;
-          break;
-        }
-      if (!merged)
-        v.push_back(t);
-    }
-    for (const auto& [ci, v] : times) {
-      per_class[ci].injected += v.size();
-      d.collisions_injected += v.size();
     }
   }
 
@@ -590,11 +634,17 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
     }
   }
 
+  // Which frame this child belongs to. Inline the parent supplies it; in
+  // standalone mode the unfolder's numbering does, as frame*1000 + candidate.
+  const std::uint64_t frame_id =
+      has_parent ? event.GetParent(JEventLevel::Timeslice).GetEventNumber()
+                 : static_cast<std::uint64_t>(event.GetEventNumber()) / 1000;
+
   // Frame-level work runs ONCE per parent frame, on its first child. Children
   // of one frame arrive together, so tracking the last frame seen is enough.
   if (has_parent) {
     const auto& parent = event.GetParent(JEventLevel::Timeslice);
-    const auto  frame  = parent.GetEventNumber();
+    const auto  frame  = frame_id;
     // Remember every frame seen, not just the last one. Children of different
     // frames interleave across worker threads -- ordering is enforced within a
     // level, not between a frame and the children of the frame before it -- so
@@ -639,10 +689,12 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
   const auto* info0 =
       tryGet<edm4hep::EventHeader>(event, "EventBuilderInfo", m_warned_fetch, m_log.get());
   std::vector<std::pair<int, double>> collisions; // (class_index, time)
+  bool   tail_present = false; ///< the tail FIELD exists, even if it is empty
   double match_tol = 5.0;                          // ns, fallback
   if (info0 != nullptr && info0->size() > 0) {
     const auto wv = (*info0)[0].getWeights();
     if (wv.size() > w::TRIGCLS) {
+      tail_present = true;
       const auto n = static_cast<std::size_t>(wv[w::TRIGCLS]);
       for (std::size_t k = 0; k < n; ++k) {
         const std::size_t it = w::TRIGCLS + 1 + 2 * k;
@@ -666,7 +718,14 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
   /// Does this particle belong to a collision the candidate is credited with?
   const auto belongs = [&](int ci, double t) {
     if (collisions.empty())
-      return true; // no tail stored: fall back to the whole child
+      // An EMPTY tail and a MISSING tail mean opposite things. Missing is a
+      // file written before the tail existed: nothing is known, so fall back
+      // to the whole child. Empty is a candidate the trigger credited with no
+      // collision -- a fake. Falling back there charged every fake's entire
+      // gated window to the ACTS denominator, and since fakes outnumber real
+      // candidates nearly 3:1 that was 4610 of 8749 expected tracks, dragging
+      // the efficiency down by about half for no physics reason.
+      return !tail_present;
     for (const auto& [cci, ct] : collisions)
       if (cci == ci && std::abs(ct - t) <= match_tol)
         return true;
@@ -675,6 +734,18 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
 
   Totals                  d;
   std::map<int, ClassRow> per_class;
+
+  // 950 real candidates recovered 614 collisions on the reference sample: a
+  // collision is claimed by 1.5 candidates on average, and every claimant used
+  // to contribute its own copy of the same generated particles. That inflated
+  // the denominator without inflating the numerator (only the candidate that
+  // actually reconstructed the track supplied a match), so a collision found
+  // by one of two claimants read as 50% efficient instead of 100%.
+  if (frame_id != m_truth_frame) {
+    m_truth_frame = frame_id;
+    m_truth_seen.clear();
+    m_truth_matched.clear();
+  }
 
   // -- truth populations, indexed by MCParticle index ------------------------
   std::map<std::size_t, int> charged_class; // in-acceptance stable charged -> class
@@ -710,6 +781,8 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
   }
 
   for (const auto& [idx, ci] : charged_class) {
+    if (!m_truth_seen.insert(truthKey((*mcps)[idx])).second)
+      continue; // another candidate of this frame already counted it
     ++d.trk_expected;
     if (ci >= 0)
       ++per_class[ci].trk_expected;
@@ -815,6 +888,8 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
       auto it = charged_class.find(idx);
       if (it == charged_class.end())
         continue; // shower secondary or out of acceptance: not a denominator entry
+      if (!m_truth_matched.insert(truthKey((*mcps)[idx])).second)
+        continue; // same particle, already credited from another candidate
       ++d.trk_matched;
       if (it->second >= 0)
         ++per_class[it->second].trk_matched;
@@ -909,16 +984,22 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
         break;
       }
     }
-    ++d.cal_expected;
-    if (ci >= 0)
-      ++per_class[ci].cal_expected;
+    // Denominator and numerator are deduplicated SEPARATELY. Skipping the
+    // whole group on a repeat would throw away a match that only the second
+    // claimant of the collision managed to reconstruct.
+    const std::uint64_t key = truthKey((*mcps)[*members.begin()]);
+    if (m_truth_seen.insert(key).second) {
+      ++d.cal_expected;
+      if (ci >= 0)
+        ++per_class[ci].cal_expected;
+    }
     bool found = false;
     for (std::size_t m : members)
       if (matched_neutral.count(m) != 0) {
         found = true;
         break;
       }
-    if (found) {
+    if (found && m_truth_matched.insert(key).second) {
       ++d.cal_matched;
       if (ci >= 0)
         ++per_class[ci].cal_matched;

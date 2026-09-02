@@ -45,12 +45,19 @@
 
 namespace eicrecon::eb {
 
-/// Per-physics-class counters. Efficiency is per class; PURITY IS NOT --
-/// fakes carry no class (mask 0, empty trigger_classes tail), so there is no
-/// per-class fake population to divide by. Purity lives on the totals only.
+/// Per-physics-class counters. Efficiency is per class; PURITY IS NOT -- a
+/// fake is credited with no collision (mask 0, empty trigger_classes tail), so
+/// it has no class of its own to divide by. Purity lives on the totals only.
+///
+/// A fake is still ATTRIBUTABLE, which is a different question: the trigger
+/// fired somewhere, and the nearest injected collision in the frame says which
+/// physics it fired next to. That attribution is what `fake` below counts, and
+/// it is what makes the fake rate readable per class -- it is NOT a claim that
+/// the fake belongs to the class.
 struct ClassRow {
   std::uint64_t injected     = 0; ///< collisions injected into the stream
   std::uint64_t found        = 0; ///< distinct injected collisions a real candidate recovered
+  std::uint64_t fake         = 0; ///< fakes whose nearest injected collision is this class
   std::uint64_t candidates   = 0; ///< candidates whose trigger_classes_mask carries this class
   std::uint64_t real_cands   = 0; ///< real candidates carrying it (real_cands - found = duplicates)
   std::uint64_t trk_matched  = 0; ///< STAGE 3: majority-matched in-acceptance charged MC
@@ -98,6 +105,9 @@ struct Totals {
   std::uint64_t candidates = 0;
   std::uint64_t real       = 0; ///< weights[FLAG] > 0
   std::uint64_t fake       = 0; ///< weights[FLAG] == 0
+  /// Fakes in a frame with no injected collision at all: nothing to attribute
+  /// them to, so they appear on TOTAL but in no class row.
+  std::uint64_t fake_unclassed = 0;
 
   // STAGE 1 -- the fast primitives the trigger definition actually specifies
   // (n_tracklets / E_calo thresholded), NOT ACTS or CaloIsland output.

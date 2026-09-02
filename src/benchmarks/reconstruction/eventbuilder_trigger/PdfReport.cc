@@ -418,6 +418,28 @@ int monoFit(double x, double size, double right = 0.94) {
   return std::max(8, static_cast<int>((right - x) / (0.62 * size)));
 }
 
+/// Split a path into at most `w`-character lines, breaking after a '/' so each
+/// line is a run of whole directory names. Counting characters only works in
+/// the MONO font -- the serif value column is proportional, which is why a
+/// 48-character DETECTOR_PATH still ran off the right edge of the page.
+std::vector<std::string> wrapPath(const std::string& path, int w) {
+  std::vector<std::string> out;
+  std::size_t              i = 0;
+  while (i < path.size()) {
+    std::size_t take = std::min(static_cast<std::size_t>(w), path.size() - i);
+    if (i + take < path.size()) {
+      // Back up to just after the last '/' that fits, unless that would leave
+      // a stub -- a spack hash is one 60-character name with no break in it.
+      const std::size_t cut = path.rfind('/', i + take);
+      if (cut != std::string::npos && cut > i && (cut - i) > static_cast<std::size_t>(w) / 3)
+        take = cut - i + 1;
+    }
+    out.push_back(path.substr(i, take));
+    i += take;
+  }
+  return out;
+}
+
 /// Two-column label/value block in serif, as on c6's reference-set page.
 double drawKeyValueEnd(const std::vector<std::pair<std::string, std::string>>& kv, double y0,
                        double dy = 0.034, double size = 0.026, double x_label = 0.20,
@@ -671,6 +693,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
     kv.emplace_back("", "");
     // The actual compact FILE, not just the config name: "Config: epic" says
     // nothing about which geometry was loaded.
+    std::string geometry, geometry_label;
     {
       const std::string dpath = envOr("DETECTOR_PATH", "");
       const std::string dcfg  = ctx.detector_config.empty() ? envOr("DETECTOR_CONFIG", "")
@@ -681,20 +704,37 @@ bool writePdfReport(const std::string& path, const std::string& table,
         if (::access(cand.c_str(), R_OK) == 0)
           xml = cand;
       }
-      kv.emplace_back("Geometry:", xml.empty() ? (dcfg.empty() ? "(unset)" : dcfg + " (file not found)")
-                                               : "");
-      if (!xml.empty()) {
-        const int w = monoFit(0.46, 0.026);
-        for (std::size_t i = 0; i < xml.size(); i += w)
-          kv.emplace_back("", xml.substr(i, w));
-      }
-      if (!dpath.empty())
-        kv.emplace_back("DETECTOR_PATH:", dpath.size() > 48 ? "..." + dpath.substr(dpath.size() - 48)
-                                                            : dpath);
+      // DETECTOR_PATH is the directory of this same file, so printing both
+      // spent four lines saying one thing. Show the resolved file when there
+      // is one, the search path only when there is not.
+      geometry = xml.empty() ? dpath : xml;
+      if (xml.empty() && dpath.empty())
+        geometry = dcfg.empty() ? "(unset)" : dcfg + " (file not found)";
+      geometry_label = xml.empty() ? "DETECTOR_PATH:" : "Geometry:";
     }
     kv.emplace_back("", "");
 
-    const double after = drawKeyValueEnd(kv, y0);
+    double after = drawKeyValueEnd(kv, y0);
+
+    if (!geometry.empty()) {
+      TLatex t;
+      t.SetNDC();
+      t.SetTextFont(kFont);
+      t.SetTextSize(0.026);
+      t.SetTextAlign(11);
+      t.DrawLatex(0.20, after, geometry_label.c_str());
+      TLatex m;
+      m.SetNDC();
+      m.SetTextFont(kMono);
+      m.SetTextSize(0.016);
+      m.SetTextAlign(11);
+      double y = after;
+      for (const auto& line : wrapPath(geometry, monoFit(0.40, 0.016))) {
+        m.DrawLatex(0.40, y, line.c_str());
+        y -= 0.021;
+      }
+      after = std::min(after - 0.030, y - 0.012);
+    }
 
     // The whole invocation. Listing selected parameters (this page used to
     // show only nsigma_window) hides the one flag that matters when a number
