@@ -58,7 +58,11 @@ struct ClassRow {
   std::uint64_t injected     = 0; ///< collisions injected into the stream
   std::uint64_t found        = 0; ///< distinct injected collisions a real candidate recovered
   std::uint64_t fake         = 0; ///< fakes whose nearest injected collision is this class
-  std::uint64_t candidates   = 0; ///< candidates whose trigger_classes_mask carries this class
+  /// Candidates attributed to this class: real ones whose trigger_classes_mask
+  /// carries it, plus fakes attributed to it by proximity. candidates - fake is
+  /// therefore the real count, and found <= that -- several real candidates can
+  /// claim one collision.
+  std::uint64_t candidates   = 0;
   std::uint64_t real_cands   = 0; ///< real candidates carrying it (real_cands - found = duplicates)
   std::uint64_t trk_matched  = 0; ///< STAGE 3: majority-matched in-acceptance charged MC
   std::uint64_t trk_expected = 0;

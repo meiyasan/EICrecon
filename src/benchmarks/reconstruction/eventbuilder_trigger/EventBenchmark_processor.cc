@@ -260,10 +260,17 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
       // It DID fire somewhere, though, and which physics it fired next to is
       // the actionable number -- without it the fake column is a single
       // stream-wide total that says nothing about where the rate comes from.
-      if (const int ci = nearest_class(w.size() > w::T0 ? w[w::T0] : 0.0); ci >= 0)
+      if (const int ci = nearest_class(w.size() > w::T0 ? w[w::T0] : 0.0); ci >= 0) {
         ++per_class[ci].fake;
-      else
+        // Also a candidate of this class's row. The class bitmask is 0 on a
+        // fake, so the mask loop below never counts one -- which left the
+        // per-class cand. column meaning "real candidates" while the TOTAL row
+        // meant "all candidates", and cand. - fake did not come out as the
+        // real count on any class row.
+        ++per_class[ci].candidates;
+      } else {
         ++d.fake_unclassed;
+      }
       if (trk_pass)
         ++d.trk_fake;
       if (cal_pass)
