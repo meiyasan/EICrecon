@@ -604,10 +604,17 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
     // Zero is the truth -- `children` equalled `candidates` in all four, so
     // every child was always processed. BLIND is now the frame tap's count
     // minus the distinct frames seen here, which is order-independent.
-    if (m_seen_frames.insert(frame).second)
+    if (m_seen_frames.insert(frame).second) {
+      // BRACES REQUIRED. Without them the inner profiling if() consumed the
+      // guard's body and processFrame ran unconditionally -- once per CHILD --
+      // inflating every frame-level counter by the candidate multiplicity
+      // (frames 17460 for a 400-frame job, injected 154188 for ~3532; found
+      // stayed correct because its dedup key survived). The indentation made
+      // it look guarded; the compiler read it the other way.
       if (m_bench->profiling())
         accumulateCallGraph(parent); // books each factory; the total is not a row
       processFrame(parent, frame);
+    }
   }
   if (!m_bench->stage3())
     return;
