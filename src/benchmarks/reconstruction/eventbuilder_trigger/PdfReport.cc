@@ -418,6 +418,25 @@ int monoFit(double x, double size, double right = 0.94) {
   return std::max(8, static_cast<int>((right - x) / (0.62 * size)));
 }
 
+/// One colour per detector family, so a reader scanning the residual pages
+/// can tell at a glance which subsystem a panel belongs to without reading the
+/// title. Matched longest-prefix-first: OuterMPGDBarrel must not fall through
+/// to the generic MPGD entry ahead of its own.
+Color_t detectorColor(const std::string& name) {
+  static const std::vector<std::pair<const char*, Color_t>> kFamilies = {
+      {"TOF", kAzure + 1},        {"MPGD", kOrange + 7},
+      {"SiBarrelVertex", kViolet + 1}, {"SiBarrel", kViolet - 5},
+      {"SiEndcap", kViolet - 5},  {"B0Tracker", kTeal + 2},
+      {"B0ECal", kTeal - 1},      {"EcalFarForward", kMagenta - 4},
+      {"HcalFarForward", kMagenta - 7}, {"LFHCAL", kSpring - 6},
+      {"Ecal", kRed - 4},         {"Hcal", kBlue - 4},
+  };
+  for (const auto& [prefix, col] : kFamilies)
+    if (name.find(prefix) != std::string::npos)
+      return col;
+  return kGray + 2;
+}
+
 /// Split a path into at most `w`-character lines, breaking after a '/' so each
 /// line is a run of whole directory names. Counting characters only works in
 /// the MONO font -- the serif value column is proportional, which is why a
@@ -509,18 +528,28 @@ TH1D* projection(TH2D* h, const std::string& suffix) {
   // core), so the data occupies a percent or so of it. Targeting entries per
   // bin across the full axis then merged a 63-entry histogram down to about
   // four fat bars. Find the occupied window first, count how many bins fall
-  // inside it, and rebin so roughly `target` bins remain there. The target
-  // scales with sqrt(N) because a fixed 40 turned a 60-entry sample into forty
-  // one-count spikes; sqrt keeps a few counts per bin at every statistics
-  // level, and full resolution once the sample can carry it.
-  const int target = std::clamp(
-      static_cast<int>(1.5 * std::sqrt(std::max(1.0, px->GetEffectiveEntries()))), 8, 40);
-  double q[2] = {0, 0}, pr[2] = {0.005, 0.995};
-  px->GetQuantiles(2, q, pr);
-  if (q[1] > q[0]) {
-    const double bw      = px->GetBinWidth(1);
-    const int    in_view = std::max(1, static_cast<int>((q[1] - q[0]) / bw));
-    int          factor  = std::max(1, in_view / target);
+  // inside it, and choose the bin WIDTH there by Freedman-Diaconis,
+  //
+  //     w = 2 * IQR / N^(1/3)
+  //
+  // the standard rule for exactly this question. It reads the width off the
+  // data's own interquartile spread, so a narrow core gets fine bins and a
+  // broad one coarse bins, and it backs off as N^(-1/3) so a 60-entry panel is
+  // not cut into forty one-count spikes. No fixed target can do both: 40 bins
+  // shattered the sparse panels, and few enough bins to fix those threw away
+  // the resolution on the 8000-entry ones.
+  double qv[4] = {0, 0, 0, 0}, pr[4] = {0.005, 0.25, 0.75, 0.995};
+  px->GetQuantiles(4, qv, pr);
+  const double lo = qv[0], iqr = qv[2] - qv[1], hi = qv[3];
+  if (hi > lo) {
+    const double bw   = px->GetBinWidth(1);
+    const double neff = std::max(1.0, px->GetEffectiveEntries());
+    // A degenerate IQR -- the whole core inside one bin -- offers no scale to
+    // read, so fall back to the visible span.
+    const double w_fd = (iqr > 0.0) ? 2.0 * iqr / std::cbrt(neff) : (hi - lo) / 20.0;
+    const int target = std::clamp(static_cast<int>((hi - lo) / std::max(w_fd, 1e-12)), 10, 60);
+    const int in_view = std::max(1, static_cast<int>((hi - lo) / bw));
+    int       factor  = std::max(1, in_view / target);
     // Rebin() needs a divisor of the bin count.
     while (factor > 1 && px->GetNbinsX() % factor != 0)
       --factor;
@@ -1098,28 +1127,19 @@ bool writePdfReport(const std::string& path, const std::string& table,
       drawTable(cols, header, body, kTableYTop, dY, sz, 0.045, 0.975);
 
       // Footer facts once, on the last page of the table.
+      // Set as a table, not as prose. As free text the values never lined up
+      // under each other and the long lines had to be ellipsised, which cut
+      // "dt = 42.4 ns" off exactly the line that needed it.
       if (i + kPerPage >= rows.size() && !ctx.footer.empty()) {
-        TLatex f;
-        f.SetNDC();
-        f.SetTextFont(kMono);
-        f.SetTextSize(std::min(0.020, sz * 1.3));
-        f.SetTextColor(kBlack);
         // Anchored to the rows actually drawn: a fixed constant here put the
         // footer on top of the last few class rows once the rows grew.
-        double y = kTableYTop - dY * static_cast<double>(body.size() + 2.5);
-        const int fw = monoFit(0.055, std::min(0.020, sz * 1.3));
-        for (const auto& line : ctx.footer) {
-          f.DrawLatex(0.055, y,
-                      (line.size() > static_cast<std::size_t>(fw)
-                           ? line.substr(0, static_cast<std::size_t>(fw) - 1) + "…"
-                           : line)
-                          .c_str());
-          y -= dY * 0.85;
-        }
-        f.SetTextColor(static_cast<Color_t>(kGray + 2));
-        f.SetTextSize(std::min(0.018, sz * 1.15));
-        f.DrawLatex(0.055, y - dY * 0.4,
-                    "purity is per-trigger only: fakes and ghosts carry no class");
+        const double y0 = kTableYTop - dY * static_cast<double>(body.size() + 2.5);
+        const std::vector<Col>         fcols = {{0.050, 11}, {0.400, 31}, {0.425, 11}};
+        const std::vector<std::string> fhdr  = {"", "", ""};
+        std::vector<std::vector<Cell>> frows;
+        for (const auto& [k, v, det] : ctx.footer)
+          frows.push_back({{k}, {v}, {det, static_cast<Color_t>(kGray + 2)}});
+        drawTable(fcols, fhdr, frows, y0, dY * 0.85, std::min(0.017, sz * 1.1), 0.045, 0.975);
       }
       c.Print(path.c_str(), "pdf");
     }
@@ -1260,15 +1280,18 @@ bool writePdfReport(const std::string& path, const std::string& table,
       }
       if (rows.empty())
         return;
-      // One page per system. More detectors than fit vertically are packed as
-      // side-by-side blocks -- the left half of the page is the first half of
-      // the detector list -- so trackers and calorimeters stay on one page each.
-      constexpr std::size_t kMaxRows = 6;
+      // ONE DETECTOR PER ROW. Packing two detectors side by side fitted each
+      // system onto a single page, but at six panels across nothing could be
+      // read off them: the point of these pages is the width of a peak, and a
+      // pad too small to show the peak's shape does not carry it. Four rows a
+      // page keeps the pads square and large; a system spans as many pages as
+      // it needs.
+      constexpr std::size_t kMaxRows = 4;
       const std::size_t     ncol     = colnames.size();
-      const std::size_t     blocks   = std::max<std::size_t>(1, (rows.size() + kMaxRows - 1) / kMaxRows);
-      const std::size_t     nrow     = (rows.size() + blocks - 1) / blocks;
-      const std::size_t     ntot     = ncol * blocks;
-      for (std::size_t r0 = 0; r0 < rows.size(); r0 += nrow * blocks) {
+      const std::size_t     blocks   = 1;
+      const std::size_t     ntot     = ncol;
+      for (std::size_t r0 = 0; r0 < rows.size(); r0 += kMaxRows) {
+        const std::size_t nrow = std::min(kMaxRows, rows.size() - r0);
         c.Clear();
         TLatex pt;
         pt.SetNDC();
@@ -1336,7 +1359,9 @@ bool writePdfReport(const std::string& path, const std::string& table,
             }
             px->SetTitle((rows[di].name + " " + colnames[q]).c_str());
             px->SetLineWidth(2);
-            px->SetFillColorAlpha(kAzure + 1, 0.35);
+            const Color_t dcol = detectorColor(rows[di].name);
+            px->SetLineColor(dcol);
+            px->SetFillColorAlpha(dcol, 0.35);
             // Default ~10 divisions collide at this pad size.
             px->GetXaxis()->SetNdivisions(505);
             px->GetYaxis()->SetNdivisions(505);

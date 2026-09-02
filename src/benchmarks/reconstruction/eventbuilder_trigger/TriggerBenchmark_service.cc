@@ -621,83 +621,60 @@ TriggerBenchmark_service::tableCells() const {
   return {header, rows};
 }
 
-std::vector<std::string> TriggerBenchmark_service::tableFooter() const {
-  std::lock_guard<std::mutex> lock(m_mutex);
-  std::vector<std::string> f;
-  std::ostringstream o;
+std::vector<std::array<std::string, 3>> TriggerBenchmark_service::tableFooter() const {
+  std::lock_guard<std::mutex>             lock(m_mutex);
+  std::vector<std::array<std::string, 3>> f;
+  const auto num = [](double v, int p) {
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(p) << v;
+    return o.str();
+  };
+
   if (m_totals.frames > 0) {
     const double per_frame = double(m_totals.fake) / double(m_totals.frames);
     const double hz        = (m_frame_ns > 0.0) ? per_frame / (m_frame_ns * 1e-9) : 0.0;
-    o << "FAR   " << m_totals.fake << " fakes / " << m_totals.frames << " frames = " << std::fixed
-      << std::setprecision(3) << per_frame << "/frame = " << std::setprecision(1) << hz * 1e-3
-      << " kHz";
-    f.push_back(o.str());
+    f.push_back({"fake rate", num(per_frame, 3) + " /frame",
+                 std::to_string(m_totals.fake) + " fakes / " + std::to_string(m_totals.frames) +
+                     " frames = " + num(hz * 1e-3, 1) + " kHz"});
   }
-  std::ostringstream r;
-  r << "recovery   " << m_totals.collisions_found << " / " << m_totals.collisions_injected
-    << " collisions found";
-  f.push_back(r.str());
-  if (m_totals.collision_gaps > 0 || m_totals.multi_coll_cands > 0) {
-    std::ostringstream p;
-    p << "pileup   " << m_totals.multi_coll_cands << " / " << m_totals.real
-      << " candidates merge >1 collision";
-    if (m_totals.real > 0)
-      p << " (" << std::fixed << std::setprecision(1)
-        << 100.0 * static_cast<double>(m_totals.multi_coll_cands) /
-               static_cast<double>(m_totals.real)
-        << "%)";
-    f.push_back(p.str());
-    // Its own line: the two together overran the footer width and were
-    // ellipsised just as the window value arrived.
-    if (m_totals.collision_gaps > 0) {
-      std::ostringstream q;
-      q << "spacing   " << std::fixed << std::setprecision(1)
-        << 100.0 * static_cast<double>(m_totals.collisions_close) /
-               static_cast<double>(m_totals.collision_gaps)
-        << "% of collisions have a neighbour within dt = " << std::setprecision(1)
-        << m_totals.dt_ns << " ns";
-      f.push_back(q.str());
-    }
-  }
-  // BLIND and the recomputed-vs-stored in-acceptance count belong in the
-  // REPORT, not only the console: they qualify the very numbers printed above
-  // them -- BLIND says the efficiency on this page is an over-estimate, and
-  // the denominator comparison says by roughly how much the ACTS column could
-  // move. A reader of the PDF alone must see both.
+  f.push_back({"recovery",
+               std::to_string(m_totals.collisions_found) + " / " +
+                   std::to_string(m_totals.collisions_injected),
+               "injected collisions recovered"});
+  if (m_totals.multi_coll_cands > 0 && m_totals.real > 0)
+    f.push_back({"pileup",
+                 num(100.0 * double(m_totals.multi_coll_cands) / double(m_totals.real), 1) + " %",
+                 std::to_string(m_totals.multi_coll_cands) + " / " +
+                     std::to_string(m_totals.real) + " candidates merge >1 collision"});
+  if (m_totals.collision_gaps > 0)
+    f.push_back({"spacing",
+                 num(100.0 * double(m_totals.collisions_close) / double(m_totals.collision_gaps),
+                     1) + " %",
+                 "neighbour inside dt = " + num(m_totals.dt_ns, 1) + " ns"});
   if (m_clock_started && m_totals.frames > 0) {
-    const double secs =
-        std::chrono::duration<double>(m_t_last - m_t_first).count();
-    std::ostringstream t;
-    t << "processing   " << std::fixed << std::setprecision(2) << secs << " s wall   |   "
-      << std::setprecision(1) << 1000.0 * secs / double(m_totals.frames) << " ms/frame";
+    const double secs = std::chrono::duration<double>(m_t_last - m_t_first).count();
+    std::string  det  = num(secs, 2) + " s wall";
     if (m_totals.candidates > 0)
-      t << "   |   " << std::setprecision(2)
-        << 1000.0 * secs / double(m_totals.candidates) << " ms/candidate";
-    f.push_back(t.str());
+      det += ", " + num(1000.0 * secs / double(m_totals.candidates), 2) + " ms/candidate";
+    f.push_back({"processing", num(1000.0 * secs / double(m_totals.frames), 1) + " ms/frame", det});
   }
   if (m_totals.cal_threshold >= 0.0) {
-    std::ostringstream t;
-    t << "thresholds   min_tracklets = " << static_cast<long>(m_totals.trk_threshold)
-      << ",  min_cal_energy = " << std::fixed << std::setprecision(3) << m_totals.cal_threshold
-      << " GeV";
+    std::string det = "min_tracklets, min_cal_energy";
     if (m_totals.cal_threshold == 0.0)
-      t << "  -> calo term DISABLED (accepts every candidate); calo and trigger "
-           "columns would duplicate time";
-    f.push_back(t.str());
+      det = "calo term DISABLED: duplicates the time column";
+    f.push_back({"thresholds",
+                 std::to_string(static_cast<long>(m_totals.trk_threshold)) + " trk, " +
+                     num(m_totals.cal_threshold, 3) + " GeV",
+                 det});
   }
-  if (m_totals.used_stored_nexp) {
-    std::ostringstream n;
-    n << "in-acceptance charged   " << m_totals.trk_expected << " recomputed  |  "
-      << m_totals.stored_nexp << " stored (N_EXPECTED)";
-    f.push_back(n.str());
-  }
-  if (m_blind_frames > 0) {
-    std::ostringstream b;
-    b << "BLIND   " << m_blind_frames
-      << " frame(s) had no candidate; their collisions are not in the denominator, so "
-         "efficiency is an over-estimate";
-    f.push_back(b.str());
-  }
+  if (m_totals.used_stored_nexp)
+    f.push_back({"in-acceptance", std::to_string(m_totals.trk_expected) + " recomputed",
+                 "vs " + std::to_string(m_totals.stored_nexp) +
+                     " stored, which carries duplicates"});
+  if (m_blind_frames > 0)
+    f.push_back({"BLIND", std::to_string(m_blind_frames) + " frames",
+                 "no candidate; collisions outside the denominator"});
+  f.push_back({"purity", "per trigger only", "a fake or a ghost carries no class"});
   return f;
 }
 

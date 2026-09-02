@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <map>
+#include <array>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -47,7 +48,7 @@ struct ReportContext {
   double        nsigma_window = 3.0;
   std::vector<ClassEff> classes;
   std::pair<std::vector<std::string>, std::vector<std::vector<std::string>>> table;
-  std::vector<std::string> footer;
+  std::vector<std::array<std::string, 3>> footer; ///< {metric, value, detail}
   /// {factory, total seconds, calls}, slowest first. Empty unless profiling.
   std::vector<std::tuple<std::string, double, std::uint64_t>> profile;
   /// Same shape, per physics class: {class, total seconds, candidates}.

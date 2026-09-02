@@ -25,6 +25,7 @@
 #pragma once
 
 #include <chrono>
+#include <array>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -257,7 +258,10 @@ public:
   std::pair<std::vector<std::string>, std::vector<std::vector<std::string>>> tableCells() const;
 
   /// Footer facts (FAR, recovery, blind frames) as ready-to-print lines.
-  std::vector<std::string> tableFooter() const;
+  /// Stream-wide facts as {metric, value, detail} rows, so the report can set
+  /// them as a table instead of a block of prose whose numbers do not line up
+  /// and whose long lines had to be ellipsised.
+  std::vector<std::array<std::string, 3>> tableFooter() const;
 
 private:
   std::string renderTable(bool final_report) const;
