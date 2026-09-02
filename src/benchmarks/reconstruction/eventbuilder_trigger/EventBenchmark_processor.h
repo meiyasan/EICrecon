@@ -69,6 +69,7 @@ private:
   std::uint64_t                     m_truth_frame = ~0ULL;
   std::unordered_set<std::uint64_t> m_truth_seen, m_truth_matched;
   double m_event_secs = 0.0; ///< factory time for the event in flight
+  double m_frame_secs = 0.0; ///< factory time for the parent frame in flight
 
   /// The 9 wired calorimeter association collections. EcalLumiSpec has no
   /// plugin yet, so it is absent here rather than resolving to nullptr.

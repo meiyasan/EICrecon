@@ -1051,7 +1051,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
         // were percentages.
         sub.push_back({""});
         sub.push_back({"count", static_cast<Color_t>(kGray + 2)});
-        sub.push_back({"count", static_cast<Color_t>(kGray + 2)});
+        sub.push_back({"x/inj", static_cast<Color_t>(kGray + 2)});
         sub.push_back({"count", static_cast<Color_t>(kGray + 2)});
         for (std::size_t k = 0; k < header.size() - 4; ++k)
           sub.push_back({"eff/pur", static_cast<Color_t>(kGray + 2)});
@@ -1169,19 +1169,36 @@ bool writePdfReport(const std::string& path, const std::string& table,
 
     double yAfter = kTableYTop - dY * (rows.size() + 3.0);
 
+    {
+      TLatex n;
+      n.SetNDC();
+      n.SetTextFont(kMono);
+      n.SetTextSize(0.016);
+      n.SetTextColor(static_cast<Color_t>(kGray + 2));
+      n.DrawLatex(0.07, std::max(0.04, yAfter),
+                  "RECORD_CALL_STACK was on: absolute throughput here is not representative");
+    }
+    c.Print(path.c_str(), "pdf");
+
     // Cost per physics class, as its own table: which classes are expensive
     // is a different question from which factories are, and merging them into
-    // one table would make both unreadable.
+    // one table would make both unreadable. It also needs a page of its own --
+    // the factory list is long enough to leave no room, and the two collided.
     if (!ctx.class_profile.empty()) {
+      c.Clear();
+      yAfter = kTableYTop;
       TLatex ch;
       ch.SetNDC();
-      ch.SetTextAlign(11);
+      ch.SetTextAlign(22);
       ch.SetTextFont(kFontBold);
-      ch.SetTextSize(0.030);
-      ch.DrawLatex(0.07, yAfter, "Cost per physics class");
+      ch.SetTextSize(0.032);
+      ch.DrawLatex(0.5, 0.960, "Cost per physics class");
+      ch.SetTextFont(kFont);
+      ch.SetTextSize(0.020);
+      ch.DrawLatex(0.5, 0.932, "frame wall time charged to the classes the frame carried");
 
       const std::vector<Col> ccols = {{0.09, 11}, {0.46, 31}, {0.62, 31}, {0.78, 31}};
-      const std::vector<std::string> chdr = {"Class", "candidates", "total s", "ms/candidate"};
+      const std::vector<std::string> chdr = {"Class", "frames", "total s", "ms/frame"};
       std::vector<std::vector<Cell>> crows;
       double cmax = 0.0;
       for (const auto& [n2, sec, cands] : ctx.class_profile)
@@ -1206,16 +1223,16 @@ bool writePdfReport(const std::string& path, const std::string& table,
                          fitTextSize(static_cast<int>(ccols.size()), 14, 0.80)),
                 0.06, 0.90);
       yAfter -= 0.030 + cdY * (crows.size() + 3.0);
+      TLatex n;
+      n.SetNDC();
+      n.SetTextFont(kMono);
+      n.SetTextSize(0.016);
+      n.SetTextColor(static_cast<Color_t>(kGray + 2));
+      n.DrawLatex(0.07, std::max(0.04, yAfter),
+                  "a frame's time is charged in full to every class it carried, so the "
+                  "column sums past the wall time");
+      c.Print(path.c_str(), "pdf");
     }
-
-    TLatex n;
-    n.SetNDC();
-    n.SetTextFont(kMono);
-    n.SetTextSize(0.016);
-    n.SetTextColor(static_cast<Color_t>(kGray + 2));
-    n.DrawLatex(0.07, std::max(0.04, yAfter),
-                "RECORD_CALL_STACK was on: absolute throughput here is not representative");
-    c.Print(path.c_str(), "pdf");
   }
 
   // ---- residual grid: one row per detector, one column per quantity ------

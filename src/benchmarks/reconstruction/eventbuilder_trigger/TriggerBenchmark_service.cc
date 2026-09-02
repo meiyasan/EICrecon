@@ -187,6 +187,11 @@ void TriggerBenchmark_service::addFrame(const Totals& d,
     dst.trk_ok += row.trk_ok;
     dst.cal_ok += row.cal_ok;
     dst.trig_ok += row.trig_ok;
+    // Without these two the per-class cost table was accumulated into the
+    // caller's local rows and then dropped here, so it rendered empty however
+    // the timing was measured.
+    dst.proc_seconds += row.proc_seconds;
+    dst.proc_cands += row.proc_cands;
   }
 
   // Deduplicate recovered collisions: overlapping candidate windows can each
@@ -552,7 +557,7 @@ TriggerBenchmark_service::tableCells() const {
   // worth its own column: with the calo term disabled it is the only thing
   // separating a trigger that finds everything from one that also fires on
   // everything.
-  std::vector<std::string> header = {"class",   "inj",     "found", "fake", "time",
+  std::vector<std::string> header = {"class",   "cand.",   "found", "fake", "time",
                                      "track",   "calo",    "trigger", "gnn", "acts-trk",
                                      "calo-island"};
   std::vector<std::vector<std::string>> rows;
@@ -562,8 +567,10 @@ TriggerBenchmark_service::tableCells() const {
     if (it == m_classes.end() || (it->second.injected == 0 && it->second.candidates == 0))
       continue;
     const ClassRow& r = it->second;
-    rows.push_back({std::string(className(ci)), std::to_string(r.injected),
-                    std::to_string(r.found),
+    rows.push_back({std::string(className(ci)), std::to_string(r.candidates),
+                    // found over injected: the denominator has to travel with
+                    // the numerator now that the injected column is gone.
+                    std::to_string(r.found) + "/" + std::to_string(r.injected),
                     // Not the fake's own class -- it has none -- but the class
                     // it fired next to. See ClassRow::fake.
                     std::to_string(r.fake),
@@ -580,8 +587,10 @@ TriggerBenchmark_service::tableCells() const {
   }
   rows.push_back({});
   rows.push_back(
-      {"TOTAL", std::to_string(m_totals.collisions_injected),
-       std::to_string(m_totals.collisions_found), std::to_string(m_totals.fake),
+      {"TOTAL", std::to_string(m_totals.candidates),
+       std::to_string(m_totals.collisions_found) + "/" +
+           std::to_string(m_totals.collisions_injected),
+       std::to_string(m_totals.fake),
        cell(m_totals.collisions_found, m_totals.collisions_injected, m_totals.real,
             m_totals.candidates),
        cell(m_totals.trk_ok, m_totals.real, m_totals.trk_ok, m_totals.trk_ok + m_totals.trk_fake),

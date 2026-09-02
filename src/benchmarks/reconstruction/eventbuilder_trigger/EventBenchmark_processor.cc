@@ -229,7 +229,8 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
   };
 
   // -- STAGE 1: per-candidate counters --------------------------------------
-  bool frame_has_real = false;
+  std::set<int> frame_cost_classes; ///< classes to charge the frame's time to
+  bool          frame_has_real = false;
   for (const auto& c : *cands) {
     const auto w = c.getWeights();
     if (w.size() <= w::CAL_PASS)
@@ -301,6 +302,13 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
         if (m_event_secs > 0.0) {
           per_class[ci].proc_seconds += m_event_secs;
           ++per_class[ci].proc_cands;
+        } else {
+          // Nothing was charged per child because nothing RAN per child: with
+          // the eventbuilder in the topology every reconstruction factory sits
+          // at Timeslice level, so the child call graph is empty and this
+          // table came out blank. The frame's own time is the real cost, and
+          // the classes present in the frame are what it was spent on.
+          frame_cost_classes.insert(ci);
         }
         // Same pass flags the totals use, charged to each class this real
         // candidate is credited with.
@@ -337,6 +345,12 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
       }
     }
   }
+
+  if (m_frame_secs > 0.0)
+    for (int ci : frame_cost_classes) {
+      per_class[ci].proc_seconds += m_frame_secs;
+      ++per_class[ci].proc_cands;
+    }
 
   m_bench->addFrame(d, per_class, found_keys);
   m_bench->maybeReport();
@@ -665,8 +679,8 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
       // (frames 17460 for a 400-frame job, injected 154188 for ~3532; found
       // stayed correct because its dedup key survived). The indentation made
       // it look guarded; the compiler read it the other way.
-      if (m_bench->profiling())
-        accumulateCallGraph(parent); // books each factory; the total is not a row
+      // books each factory; the total is not a row of its own
+      m_frame_secs = m_bench->profiling() ? accumulateCallGraph(parent) : 0.0;
       processFrame(parent, frame);
     }
   }
