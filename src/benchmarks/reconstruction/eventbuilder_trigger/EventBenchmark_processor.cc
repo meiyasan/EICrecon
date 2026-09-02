@@ -6,6 +6,7 @@
 #include "EventBenchmark_processor.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <functional>
@@ -217,6 +218,14 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
       }
       for (int ci : seen) {
         ++per_class[ci].real_cands;
+        // Cost of this candidate, charged to every class it carries. A
+        // multi-class candidate is counted once per class on purpose: the
+        // question is "what does a class cost me", and the work was done for
+        // all of them together.
+        if (m_event_secs > 0.0) {
+          per_class[ci].proc_seconds += m_event_secs;
+          ++per_class[ci].proc_cands;
+        }
         // Same pass flags the totals use, charged to each class this real
         // candidate is credited with.
         if (trk_pass)
@@ -289,6 +298,28 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
   m_bench->maybeReport();
 }
 
+
+/// Accumulate one event's factory timings. The eventbuilder's own factories
+/// run on the PARENT Timeslice, so reading only the child's graph (which is
+/// what a PhysicsEvent-level tap sees) returns nothing at all -- the child
+/// graph holds just the per-candidate reconstruction.
+double EventBenchmark_processor::accumulateCallGraph(const JEvent& ev) {
+  auto* cg = ev.GetJCallGraphRecorder();
+  if (cg == nullptr || !cg->IsEnabled())
+    return 0.0;
+  double total = 0.0;
+  for (const auto& n : cg->GetCallGraph()) {
+    const double secs = std::chrono::duration<double>(n.end_time - n.start_time).count();
+    total += secs;
+    std::string label = n.callee_name;
+    if (!n.callee_tag.empty())
+      label = label.empty() ? n.callee_tag : label + ":" + n.callee_tag;
+    if (label.empty())
+      label = "(unnamed)";
+    m_bench->addFactoryTime(label, secs);
+  }
+  return total;
+}
 
 void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref) {
   if (!m_bench->res().enabled())
@@ -524,6 +555,15 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
 }
 
 void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
+  m_bench->tickClock();
+
+  // Per-factory timing, straight from JANA's call graph: every node carries
+  // the start/end timestamps of one factory call. Summing per callee gives the
+  // "what is slow" breakdown without instrumenting any factory by hand.
+  // Child graph here; the parent frame's graph is read once per frame in
+  // processFrame(), so a frame's factories are not counted once per child.
+  m_event_secs = m_bench->profiling() ? accumulateCallGraph(event) : 0.0;
+
   const bool has_parent = event.HasParent(JEventLevel::Timeslice);
   {
     // Every event, not just the first: a watch-mode run rotates through files
@@ -565,6 +605,8 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
     // every child was always processed. BLIND is now the frame tap's count
     // minus the distinct frames seen here, which is order-independent.
     if (m_seen_frames.insert(frame).second)
+      if (m_bench->profiling())
+        accumulateCallGraph(parent); // books each factory; the total is not a row
       processFrame(parent, frame);
   }
   if (!m_bench->stage3())

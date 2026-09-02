@@ -24,13 +24,15 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <mutex>
 #include <set>
 #include <string>
-#include <tuple>
+
 #include <utility>
+#include <tuple>
 #include <vector>
 
 #include <JANA/JApplicationFwd.h>
@@ -82,6 +84,10 @@ struct ClassRow {
   /// candidate and in acceptance. The shortfall is contamination within the
   /// class: secondaries, out-of-acceptance, or another collision of the same
   /// class inside the gate.
+  /// Wall time spent in factories for candidates of this class, and how many
+  /// candidates that covers. Only filled when profiling is on.
+  double        proc_seconds = 0.0;
+  std::uint64_t proc_cands   = 0;
   std::uint64_t trk_reco_any = 0, trk_reco_good = 0;
   std::uint64_t cal_reco_any = 0, cal_reco_good = 0; ///< tracker RawHitLink hits carrying this class band
 };
@@ -191,6 +197,23 @@ public:
   /// efficiency figure honest about what it could not see.
   void addBlindFrames(std::uint64_t n);
 
+  /// Wall-clock timing of the run, so the table can report throughput per
+  /// frame and per candidate alongside the physics numbers. Started on the
+  /// first event seen and advanced on every one after it, so it measures the
+  /// processing window rather than including JANA start-up and geometry load.
+  void tickClock();
+
+  /// Per-factory wall time, accumulated from JANA's OWN call graph
+  /// (JCallGraphRecorder timestamps every factory call). Off unless
+  /// eventbuilder:benchmark:profile=1, because recording the call stack costs
+  /// throughput -- JANA's own parameter description says so.
+  bool profiling() const { return m_profile; }
+  void addFactoryTime(const std::string& factory, double seconds);
+  /// Slowest factories first: {factory, total seconds, call count}.
+  std::vector<std::tuple<std::string, double, std::uint64_t>> factoryProfile() const;
+  /// Same, but per physics class: {class, total seconds, candidates}.
+  std::vector<std::tuple<std::string, double, std::uint64_t>> classProfile() const;
+
   /// Distinct parent frames the PhysicsEvent tap reached, reported once at
   /// its Finish(). Blind frames are the frame tap's count minus this.
   void addChildFrames(std::uint64_t n);
@@ -238,6 +261,9 @@ private:
   bool m_standalone      = false;
   std::uint64_t m_last_report_frames = 0;
   std::uint64_t m_blind_frames      = 0;
+  bool                                  m_clock_started = false;
+  std::chrono::steady_clock::time_point m_t_first{};
+  std::chrono::steady_clock::time_point m_t_last{};
   std::uint64_t m_child_frames      = 0;
   bool          m_have_child_frames = false;
 
@@ -247,6 +273,8 @@ private:
   double      m_calo_dr      = 0.05;
   double      m_nsigma_window = 3.0;
   std::string m_csv_path;
+  bool        m_profile = false;
+  std::map<std::string, std::pair<double, std::uint64_t>> m_factory_time;
   std::string m_pdf_path;
   std::vector<std::string> m_input_files;
   ResolutionHists m_res;

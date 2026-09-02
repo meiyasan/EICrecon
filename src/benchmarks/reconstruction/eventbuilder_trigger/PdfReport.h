@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -47,6 +48,10 @@ struct ReportContext {
   std::vector<ClassEff> classes;
   std::pair<std::vector<std::string>, std::vector<std::vector<std::string>>> table;
   std::vector<std::string> footer;
+  /// {factory, total seconds, calls}, slowest first. Empty unless profiling.
+  std::vector<std::tuple<std::string, double, std::uint64_t>> profile;
+  /// Same shape, per physics class: {class, total seconds, candidates}.
+  std::vector<std::tuple<std::string, double, std::uint64_t>> class_profile;
 };
 
 /// Writes the report. Returns false if the file could not be opened.

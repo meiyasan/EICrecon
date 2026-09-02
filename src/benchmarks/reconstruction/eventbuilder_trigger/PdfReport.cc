@@ -450,9 +450,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
     t.SetTextFont(kFont);
     t.SetTextSize(0.034);
     // "inline"/"standalone" alone means nothing to a reader of the PDF.
-    t.DrawLatex(0.5, 0.745, ctx.mode == "inline"
-                                ? "Measured during reconstruction (inline)"
-                                : "Measured by re-reading written output (standalone)");
+    t.DrawLatex(0.5, 0.745, "Software trigger performance");
     if (ctx.overall_eff >= 0.0) {
       std::ostringstream os;
       os << std::fixed << std::setprecision(1) << "Efficiency = " << 100.0 * ctx.overall_eff
@@ -562,8 +560,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
                                                             : dpath);
     }
     kv.emplace_back("", "");
-    kv.emplace_back("Mode:", ctx.mode == "inline" ? "inline (during reconstruction)"
-                                                  : "standalone (re-read of output)");
+
     const double after = drawKeyValueEnd(kv, y0);
 
     // The whole invocation. Listing selected parameters (this page used to
@@ -900,6 +897,99 @@ bool writePdfReport(const std::string& path, const std::string& table,
       }
       c.Print(path.c_str(), "pdf");
     }
+  }
+
+  // ---- per-factory timing, when profiling is on -------------------------
+  if (!ctx.profile.empty()) {
+    c.Clear();
+    TLatex h;
+    h.SetNDC();
+    h.SetTextAlign(22);
+    h.SetTextFont(kFontBold);
+    h.SetTextSize(0.044);
+    h.DrawLatex(0.5, 0.930, "Where the time goes");
+    h.SetTextFont(kFont);
+    h.SetTextSize(0.028);
+    h.DrawLatex(0.5, 0.888, "per-factory wall time, from JANA's call graph");
+
+    double total = 0.0;
+    for (const auto& [n, sec, calls] : ctx.profile)
+      total += sec;
+
+    const std::vector<Col> cols = {{0.07, 11}, {0.62, 31}, {0.74, 31}, {0.86, 31}, {0.95, 31}};
+    const std::vector<std::string> hdr = {"Factory", "total s", "share", "calls", "ms/call"};
+    std::vector<std::vector<Cell>> rows;
+    std::size_t shown = 0;
+    for (const auto& [name, sec, calls] : ctx.profile) {
+      if (shown++ >= 28)
+        break;
+      const double share = (total > 0.0) ? 100.0 * sec / total : 0.0;
+      std::ostringstream a, b, cc, d;
+      a << std::fixed << std::setprecision(3) << sec;
+      b << std::fixed << std::setprecision(1) << share << "%";
+      cc << calls;
+      d << std::fixed << std::setprecision(3) << (calls ? 1000.0 * sec / calls : 0.0);
+      // Red where one factory dominates: that is the thing to look at.
+      const auto col = static_cast<Color_t>(share >= 20.0 ? kRed + 1
+                                            : (share >= 5.0 ? kOrange + 7 : kBlack));
+      rows.push_back({{name}, {a.str(), col}, {b.str(), col}, {cc.str()}, {d.str()}});
+    }
+    const double avail = kTableYTop - kTableYBot;
+    const double dY    = std::min(kTableBaseDY, avail / std::max<double>(rows.size() + 4, 1));
+    drawTable(cols, hdr, rows, kTableYTop, dY,
+              std::min(kTableTextSize * (dY / kTableBaseDY),
+                       fitTextSize(static_cast<int>(cols.size()), 14, 0.90)),
+              0.06, 0.96);
+
+    double yAfter = kTableYTop - dY * (rows.size() + 3.0);
+
+    // Cost per physics class, as its own table: which classes are expensive
+    // is a different question from which factories are, and merging them into
+    // one table would make both unreadable.
+    if (!ctx.class_profile.empty()) {
+      TLatex ch;
+      ch.SetNDC();
+      ch.SetTextAlign(11);
+      ch.SetTextFont(kFontBold);
+      ch.SetTextSize(0.030);
+      ch.DrawLatex(0.07, yAfter, "Cost per physics class");
+
+      const std::vector<Col> ccols = {{0.09, 11}, {0.46, 31}, {0.62, 31}, {0.78, 31}};
+      const std::vector<std::string> chdr = {"Class", "candidates", "total s", "ms/candidate"};
+      std::vector<std::vector<Cell>> crows;
+      double cmax = 0.0;
+      for (const auto& [n2, sec, cands] : ctx.class_profile)
+        cmax = std::max(cmax, cands ? 1000.0 * sec / cands : 0.0);
+      for (const auto& [name, sec, cands] : ctx.class_profile) {
+        const double per = cands ? 1000.0 * sec / cands : 0.0;
+        std::ostringstream a, b, cc;
+        a << cands;
+        b << std::fixed << std::setprecision(2) << sec;
+        cc << std::fixed << std::setprecision(1) << per;
+        // Flag the classes costing most per candidate.
+        const auto col = static_cast<Color_t>(
+            (cmax > 0.0 && per >= 0.75 * cmax) ? kRed + 1
+                                               : ((cmax > 0.0 && per >= 0.5 * cmax) ? kOrange + 7
+                                                                                    : kBlack));
+        crows.push_back({{name}, {a.str()}, {b.str()}, {cc.str(), col}});
+      }
+      const double cdY = std::min(kTableBaseDY * 0.8,
+                                  std::max(0.012, (yAfter - 0.10) / (crows.size() + 3.0)));
+      drawTable(ccols, chdr, crows, yAfter - 0.030, cdY,
+                std::min(kTableTextSize * (cdY / kTableBaseDY),
+                         fitTextSize(static_cast<int>(ccols.size()), 14, 0.80)),
+                0.06, 0.90);
+      yAfter -= 0.030 + cdY * (crows.size() + 3.0);
+    }
+
+    TLatex n;
+    n.SetNDC();
+    n.SetTextFont(kMono);
+    n.SetTextSize(0.016);
+    n.SetTextColor(static_cast<Color_t>(kGray + 2));
+    n.DrawLatex(0.07, std::max(0.04, yAfter),
+                "RECORD_CALL_STACK was on: absolute throughput here is not representative");
+    c.Print(path.c_str(), "pdf");
   }
 
   // ---- pages 4+: plots, grouped by detector, four per page -----------------

@@ -18,6 +18,7 @@
 
 #include <JANA/JApplicationFwd.h>
 #include <JANA/JApplication.h>
+#include <JANA/Services/JParameterManager.h>
 
 #include "EventBenchmark_processor.h"
 #include "TriggerBenchmark_service.h"
@@ -25,6 +26,18 @@
 extern "C" {
 void InitPlugin(JApplication* app) {
   InitJANAPlugin(app);
+  // RECORD_CALL_STACK has to be set HERE, at plugin load. Setting it from the
+  // service's acquire_services() is too late: JANA has already built its event
+  // pool by then and each JEvent's call-graph recorder is already stamped
+  // disabled, so the graph comes back empty and the profile page is blank.
+  bool profile = false;
+  app->SetDefaultParameter(
+      "eventbuilder:benchmark:profile", profile,
+      "Per-factory timing breakdown, read from JANA's call graph. Implies "
+      "RECORD_CALL_STACK=1, which costs throughput -- leave off for production runs.");
+  if (profile)
+    app->SetParameterValue("RECORD_CALL_STACK", true);
+
   app->ProvideService(std::make_shared<eicrecon::eb::TriggerBenchmark_service>(app));
   app->Add(new eicrecon::eb::EventBenchmark_processor());
 }

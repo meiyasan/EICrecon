@@ -89,6 +89,18 @@ void TriggerBenchmark_service::acquire_services(JServiceLocator* /*locator*/) {
       "eventbuilder:benchmark:csv", m_csv_path,
       "Write the final table as CSV to this path. Empty = no CSV.");
   m_app->SetDefaultParameter(
+      "eventbuilder:benchmark:profile", m_profile,
+      "Per-factory timing breakdown, read from JANA's call graph. Implies "
+      "record_call_stack=1, which costs throughput -- leave off for production runs.");
+  if (m_profile) {
+    // JANA only timestamps factory calls when the call-stack recorder is on.
+    // JANA spells this RECORD_CALL_STACK; the lowercase form is silently ignored.
+    m_app->SetParameterValue("RECORD_CALL_STACK", true);
+    if (m_log)
+      m_log->info("benchmark: per-factory profiling on (record_call_stack=1); "
+                  "throughput numbers in this run are not representative");
+  }
+  m_app->SetDefaultParameter(
       "eventbuilder:benchmark:pdf", m_pdf_path,
       "Write a multi-page PDF report (title, software provenance, table, plots) to this "
       "path. Empty = no PDF.");
@@ -241,6 +253,8 @@ void TriggerBenchmark_service::addEvent(const Totals& d,
     dst.trk_expected += row.trk_expected;
     dst.cal_matched += row.cal_matched;
     dst.cal_expected += row.cal_expected;
+    dst.proc_seconds += row.proc_seconds;
+    dst.proc_cands += row.proc_cands;
     dst.trk_reco_any += row.trk_reco_any;
     dst.trk_reco_good += row.trk_reco_good;
     dst.cal_reco_any += row.cal_reco_any;
@@ -258,6 +272,50 @@ void TriggerBenchmark_service::addChildFrames(std::uint64_t n) {
   // them by difference is order-independent; inferring them from gaps in the
   // frame numbering was not (see EventBenchmark_processor.cc).
   m_blind_frames = (m_totals.frames > m_child_frames) ? m_totals.frames - m_child_frames : 0;
+}
+
+void TriggerBenchmark_service::addFactoryTime(const std::string& factory, double seconds) {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  auto& e = m_factory_time[factory];
+  e.first += seconds;
+  ++e.second;
+}
+
+std::vector<std::tuple<std::string, double, std::uint64_t>>
+TriggerBenchmark_service::classProfile() const {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  std::vector<std::tuple<std::string, double, std::uint64_t>> out;
+  for (int ci = 0; ci < kNumClasses; ++ci) {
+    auto it = m_classes.find(ci);
+    if (it == m_classes.end() || it->second.proc_cands == 0)
+      continue;
+    out.emplace_back(std::string(className(ci)), it->second.proc_seconds, it->second.proc_cands);
+  }
+  std::sort(out.begin(), out.end(),
+            [](const auto& a, const auto& b) { return std::get<1>(a) > std::get<1>(b); });
+  return out;
+}
+
+std::vector<std::tuple<std::string, double, std::uint64_t>>
+TriggerBenchmark_service::factoryProfile() const {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  std::vector<std::tuple<std::string, double, std::uint64_t>> out;
+  out.reserve(m_factory_time.size());
+  for (const auto& [name, e] : m_factory_time)
+    out.emplace_back(name, e.first, e.second);
+  std::sort(out.begin(), out.end(),
+            [](const auto& a, const auto& b) { return std::get<1>(a) > std::get<1>(b); });
+  return out;
+}
+
+void TriggerBenchmark_service::tickClock() {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  const auto now = std::chrono::steady_clock::now();
+  if (!m_clock_started) {
+    m_clock_started = true;
+    m_t_first       = now;
+  }
+  m_t_last = now;
 }
 
 void TriggerBenchmark_service::addBlindFrames(std::uint64_t n) {
@@ -332,7 +390,9 @@ void TriggerBenchmark_service::report(bool final_report) {
       }
     }
     ctx.table  = tableCells();
-    ctx.footer = tableFooter();
+    ctx.footer  = tableFooter();
+    ctx.profile       = factoryProfile();
+    ctx.class_profile = classProfile();
     if (writePdfReport(m_pdf_path, table, m_res.hists(), ctx) && m_log)
       m_log->info("benchmark: wrote {}", m_pdf_path);
   }
@@ -475,8 +535,13 @@ TriggerBenchmark_service::tableCells() const {
   // trigger columns are algebraically identical to time -- one measurement
   // printed three times. Say "off" instead of repeating it.
   const bool cal_off = (m_totals.cal_threshold == 0.0);
-  std::vector<std::string> header = {"class", "inj",  "found", "time",    "track",
-                                     "calo",  "trigger", "gnn", "acts-trk", "calo-island"};
+  // Counts first (inj/found/fake), then the per-stage eff/pur pairs. fake is
+  // worth its own column: with the calo term disabled it is the only thing
+  // separating a trigger that finds everything from one that also fires on
+  // everything.
+  std::vector<std::string> header = {"class",   "inj",     "found", "fake", "time",
+                                     "track",   "calo",    "trigger", "gnn", "acts-trk",
+                                     "calo-island"};
   std::vector<std::vector<std::string>> rows;
 
   for (int ci = 0; ci < kNumClasses; ++ci) {
@@ -485,7 +550,9 @@ TriggerBenchmark_service::tableCells() const {
       continue;
     const ClassRow& r = it->second;
     rows.push_back({std::string(className(ci)), std::to_string(r.injected),
-                    std::to_string(r.found), cell(r.found, r.injected, r.found, r.real_cands),
+                    std::to_string(r.found),
+                    "--", // a fake carries no class, so it cannot be charged to one
+                    cell(r.found, r.injected, r.found, r.real_cands),
                     cell(r.trk_ok, r.real_cands, r.found_trk, r.trk_ok),
                     cell(r.cal_ok, r.real_cands, r.found_cal, r.cal_ok),
                     cell(r.found_trig, r.injected, r.found_trig, r.trig_ok), "--/--",
@@ -499,7 +566,7 @@ TriggerBenchmark_service::tableCells() const {
   rows.push_back({});
   rows.push_back(
       {"TOTAL", std::to_string(m_totals.collisions_injected),
-       std::to_string(m_totals.collisions_found),
+       std::to_string(m_totals.collisions_found), std::to_string(m_totals.fake),
        cell(m_totals.collisions_found, m_totals.collisions_injected, m_totals.real,
             m_totals.candidates),
        cell(m_totals.trk_ok, m_totals.real, m_totals.trk_ok, m_totals.trk_ok + m_totals.trk_fake),
@@ -515,7 +582,7 @@ TriggerBenchmark_service::tableCells() const {
        m_totals.saw_stage3 ? cell(m_totals.cal_matched, m_totals.cal_expected,
                                   m_totals.cal_reco_matched, m_totals.cal_reco)
                            : "--/--"});
-  rows.push_back({"FAKE-ACCEPT", "--", "--", "--/--",
+  rows.push_back({"FAKE-ACCEPT", "--", "--", std::to_string(m_totals.fake), "--/--",
                   cell(m_totals.trk_fake, m_totals.fake, 0, 0),
                   cal_off ? "off" : cell(m_totals.cal_fake, m_totals.fake, 0, 0),
                   cal_off ? "off" : cell(m_totals.trig_fake, m_totals.fake, 0, 0),
@@ -546,6 +613,17 @@ std::vector<std::string> TriggerBenchmark_service::tableFooter() const {
   // them -- BLIND says the efficiency on this page is an over-estimate, and
   // the denominator comparison says by roughly how much the ACTS column could
   // move. A reader of the PDF alone must see both.
+  if (m_clock_started && m_totals.frames > 0) {
+    const double secs =
+        std::chrono::duration<double>(m_t_last - m_t_first).count();
+    std::ostringstream t;
+    t << "processing   " << std::fixed << std::setprecision(2) << secs << " s wall   |   "
+      << std::setprecision(1) << 1000.0 * secs / double(m_totals.frames) << " ms/frame";
+    if (m_totals.candidates > 0)
+      t << "   |   " << std::setprecision(2)
+        << 1000.0 * secs / double(m_totals.candidates) << " ms/candidate";
+    f.push_back(t.str());
+  }
   if (m_totals.cal_threshold >= 0.0) {
     std::ostringstream t;
     t << "thresholds   min_tracklets = " << static_cast<long>(m_totals.trk_threshold)

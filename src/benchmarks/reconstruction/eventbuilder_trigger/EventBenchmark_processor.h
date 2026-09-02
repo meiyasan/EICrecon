@@ -57,8 +57,11 @@ private:
   /// RawHitLink label on the tracker side and from the matched MC particle on
   /// the calo side.
   void fillResolutions(const JEvent& event, double t_ref);
+  /// Sum one event's call graph into the profile; returns its total seconds.
+  double accumulateCallGraph(const JEvent& ev);
 
   bool m_warned_fetch = false;
+  double m_event_secs = 0.0; ///< factory time for the event in flight
 
   /// The 9 wired calorimeter association collections. EcalLumiSpec has no
   /// plugin yet, so it is absent here rather than resolving to nullptr.
