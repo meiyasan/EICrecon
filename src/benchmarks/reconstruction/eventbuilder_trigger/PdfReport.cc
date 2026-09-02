@@ -159,7 +159,9 @@ bool coreSigma(TH1* h, double& sigma, double& err) {
 /// can draw the TAIL alone and leave the core as visible excess above it.
 /// sigma_core <= sigma_tail by construction.
 TF1* fitDoubleGaussian(TH1* h, double& core, double& tail, double& mu, double& tail_amp) {
-  if (h == nullptr || h->GetEntries() < 100)
+  // 100 was too strict: a sparse panel then showed no fit at all, which
+  // reads as "the fit failed" rather than "there are 63 entries".
+  if (h == nullptr || h->GetEntries() < 30)
     return nullptr;
   const double lo = h->GetXaxis()->GetXmin();
   const double hi = h->GetXaxis()->GetXmax();
@@ -182,8 +184,21 @@ TF1* fitDoubleGaussian(TH1* h, double& core, double& tail, double& mu, double& t
   f->SetParLimits(3, bw, w);
   f->SetParLimits(4, m0 - s0, m0 + s0);
   if (h->Fit(f, "QNR") != 0) {
+    // Two components need enough entries to separate. Fall back to a single
+    // Gaussian rather than reporting nothing: core is then the whole width
+    // and tail is reported as absent.
     delete f;
-    return nullptr;
+    auto* g = new TF1((std::string(h->GetName()) + "_sg").c_str(), "gaus", lo, hi);
+    g->SetParameters(a0, m0, s0);
+    if (h->Fit(g, "QNR") != 0 || !(g->GetParameter(2) > 0)) {
+      delete g;
+      return nullptr;
+    }
+    core     = std::fabs(g->GetParameter(2));
+    tail     = 0.0;
+    mu       = g->GetParameter(1);
+    tail_amp = 0.0;
+    return g;
   }
   double a1 = f->GetParameter(0), s1 = std::fabs(f->GetParameter(1));
   double a2 = f->GetParameter(2), s2 = std::fabs(f->GetParameter(3));
@@ -432,40 +447,8 @@ void drawKeyValue(const std::vector<std::pair<std::string, std::string>>& kv, do
 /// summary table and the plots go through this: fitting a raw 2000-bin
 /// projection in one place and a rebinned one in the other made the same
 /// quantity read 39.4 ps on its plot and "--" in the table.
-TH1D* projection(TH2D* h, const std::string& suffix) {
-  if (h == nullptr)
-    return nullptr;
-  auto* px = h->ProjectionX((std::string(h->GetName()) + suffix).c_str());
-  if (px == nullptr)
-    return nullptr;
-  // Rebin until the bins carry enough entries to show a shape -- but judge
-  // that over the region that will actually be DRAWN (the central 99%, the
-  // same clip the plotting code applies), not over the whole booked axis.
-  //
-  // The booked ranges are deliberately generous, so a residual that lives
-  // inside a few hundred microns of a +-6 mm axis leaves ~95% of the bins
-  // empty. Averaging over that emptiness says "0.3 entries/bin" and rebins
-  // away a factor of eight, and what survives in the zoomed view is half a
-  // dozen steps -- a pixelated core produced entirely by the empty tails
-  // beside it. Measuring occupancy where the data is decouples the binning
-  // from how wide the axis happens to be.
-  const double total = px->Integral();
-  auto core_bins = [&px]() {
-    double       q[2]     = {0.0, 0.0};
-    const double probs[2] = {0.005, 0.995};
-    px->GetQuantiles(2, q, probs);
-    const int b0 = px->FindBin(q[0]);
-    const int b1 = px->FindBin(q[1]);
-    return std::max(1, b1 - b0 + 1);
-  };
-  while (px->GetNbinsX() > 50 && px->GetNbinsX() % 2 == 0 &&
-         total / static_cast<double>(core_bins()) < 15.0)
-    px->Rebin(2);
-  return px;
-}
-
-/// Same as drawKeyValue, returning the y it finished at so a caller can put
-/// something underneath without guessing the row count.
+/// drawKeyValue, returning the y it finished at so a caller can place
+/// something underneath without recounting the rows.
 double drawKeyValueEnd(const std::vector<std::pair<std::string, std::string>>& kv, double y0,
                        double dy, double size, double x_label, double x_value) {
   drawKeyValue(kv, y0, dy, size, x_label, x_value);
@@ -475,10 +458,11 @@ double drawKeyValueEnd(const std::vector<std::pair<std::string, std::string>>& k
   return y - 0.5 * dy;
 }
 
-/// Clip the x axis to the central 99% of the entries. The booked ranges are
-/// deliberately generous, so drawn raw most panels are a spike on an empty
-/// axis.
+/// Clip the x axis to the central 99% of the entries, so a peak that occupies
+/// a percent of a deliberately generous axis still fills its pad.
 void zoomToData(TH1* px) {
+  if (px == nullptr)
+    return;
   double q[2] = {0, 0}, pr[2] = {0.005, 0.995};
   px->GetQuantiles(2, q, pr);
   if (!(q[1] > q[0]))
@@ -489,6 +473,39 @@ void zoomToData(TH1* px) {
     lo = std::max(0.0, lo);
   px->GetXaxis()->SetRangeUser(std::max(lo, px->GetXaxis()->GetXmin()),
                                std::min(hi, px->GetXaxis()->GetXmax()));
+}
+
+TH1D* projection(TH2D* h, const std::string& suffix) {
+  if (h == nullptr)
+    return nullptr;
+  auto* px = h->ProjectionX((std::string(h->GetName()) + suffix).c_str());
+  if (px == nullptr)
+    return nullptr;
+
+  // Rebin for the window the reader will actually SEE, not the whole axis.
+  // Ranges are booked generously (a TOF time axis is +-2 ns for a ~20 ps
+  // core), so the data occupies a percent or so of it. Targeting entries per
+  // bin across the full axis then merged a 63-entry histogram down to about
+  // four fat bars. Find the occupied window first, count how many bins fall
+  // inside it, and rebin so roughly `target` bins remain there. The target
+  // scales with sqrt(N) because a fixed 40 turned a 60-entry sample into forty
+  // one-count spikes; sqrt keeps a few counts per bin at every statistics
+  // level, and full resolution once the sample can carry it.
+  const int target = std::clamp(
+      static_cast<int>(1.5 * std::sqrt(std::max(1.0, px->GetEffectiveEntries()))), 8, 40);
+  double q[2] = {0, 0}, pr[2] = {0.005, 0.995};
+  px->GetQuantiles(2, q, pr);
+  if (q[1] > q[0]) {
+    const double bw      = px->GetBinWidth(1);
+    const int    in_view = std::max(1, static_cast<int>((q[1] - q[0]) / bw));
+    int          factor  = std::max(1, in_view / target);
+    // Rebin() needs a divisor of the bin count.
+    while (factor > 1 && px->GetNbinsX() % factor != 0)
+      --factor;
+    if (factor > 1)
+      px->Rebin(factor);
+  }
+  return px;
 }
 
 std::vector<std::string> split(const std::string& s) {
@@ -941,15 +958,33 @@ bool writePdfReport(const std::string& path, const std::string& table,
   // Rendered as cells, not as dumped monospace lines: only that way do the
   // columns align and the numbers carry colour.
   {
-    const auto& header = ctx.table.first;
-    const auto& rows   = ctx.table.second;
+    auto header = ctx.table.first;
+    auto rows   = ctx.table.second;
+    // Drop columns with nothing in them (gnn when no model ran). They are pure
+    // width, and width is why the last real column fell off the page.
+    for (std::size_t col = header.size(); col-- > 3;) {
+      bool any = false;
+      for (const auto& r : rows)
+        if (col < r.size() && r[col].rfind("--", 0) != 0 && r[col] != "n/a" && !r[col].empty()) {
+          any = true;
+          break;
+        }
+      if (any)
+        continue;
+      header.erase(header.begin() + static_cast<long>(col));
+      for (auto& r : rows)
+        if (col < r.size())
+          r.erase(r.begin() + static_cast<long>(col));
+    }
     // Column x positions: class name left-aligned, everything else right.
     std::vector<Col> cols;
     cols.push_back({0.050, 11}); // class name, left
-    cols.push_back({0.185, 31});
-    cols.push_back({0.245, 31});
-    for (int i = 0; i < 7; ++i)
-      cols.push_back({0.348 + 0.104 * i, 31});
+    const std::size_t nstage = header.size() - 4; // class, inj, found, fake
+    cols.push_back({0.165, 31});
+    cols.push_back({0.225, 31});
+    cols.push_back({0.285, 31});
+    for (std::size_t i = 0; i < nstage; ++i)
+      cols.push_back({0.325 + (0.965 - 0.325) * double(i + 1) / double(nstage), 31});
 
     constexpr std::size_t kPerPage = 34;
     std::size_t           page     = 0;
@@ -972,10 +1007,13 @@ bool writePdfReport(const std::string& path, const std::string& table,
       std::vector<std::vector<Cell>> body;
       {
         std::vector<Cell> sub;
+        // Counts are counts: labelling them eff/pur too said inj and found
+        // were percentages.
         sub.push_back({""});
-        sub.push_back({""});
-        sub.push_back({""});
-        for (int k = 0; k < 7; ++k)
+        sub.push_back({"count", static_cast<Color_t>(kGray + 2)});
+        sub.push_back({"count", static_cast<Color_t>(kGray + 2)});
+        sub.push_back({"count", static_cast<Color_t>(kGray + 2)});
+        for (std::size_t k = 0; k < header.size() - 4; ++k)
           sub.push_back({"eff/pur", static_cast<Color_t>(kGray + 2)});
         body.push_back(sub);
       }
@@ -1147,12 +1185,33 @@ bool writePdfReport(const std::string& path, const std::string& table,
     struct Panel { std::string key; };
     struct Row { std::string name; std::vector<std::string> keys; };
 
+    // Below this a panel is a few counts smeared over the whole gate: no fit is
+    // meaningful and the bars do not even render at this pad size.
+    constexpr double kMinEntries = 20;
     auto drawGrid = [&](const std::string& title, const std::vector<std::string>& colnames,
-                        const std::vector<Row>& rows) {
-      constexpr std::size_t kRowsPerPage = 4; // 4 rows x 3 columns = 12 panels
-      const std::size_t ncol = colnames.size();
-      for (std::size_t r0 = 0; r0 < rows.size(); r0 += kRowsPerPage) {
-        const std::size_t nrow = std::min(kRowsPerPage, rows.size() - r0);
+                        const std::vector<Row>& all_rows) {
+      // Drop detectors with nothing drawable rather than spending a sixth of
+      // the page on three "no data" boxes in a row.
+      std::vector<Row> rows;
+      for (const auto& r : all_rows) {
+        const bool any = std::any_of(r.keys.begin(), r.keys.end(), [&](const std::string& k) {
+          auto i = hists.find(k);
+          return i != hists.end() && i->second != nullptr && i->second->GetEntries() >= kMinEntries;
+        });
+        if (any)
+          rows.push_back(r);
+      }
+      if (rows.empty())
+        return;
+      // One page per system. More detectors than fit vertically are packed as
+      // side-by-side blocks -- the left half of the page is the first half of
+      // the detector list -- so trackers and calorimeters stay on one page each.
+      constexpr std::size_t kMaxRows = 6;
+      const std::size_t     ncol     = colnames.size();
+      const std::size_t     blocks   = std::max<std::size_t>(1, (rows.size() + kMaxRows - 1) / kMaxRows);
+      const std::size_t     nrow     = (rows.size() + blocks - 1) / blocks;
+      const std::size_t     ntot     = ncol * blocks;
+      for (std::size_t r0 = 0; r0 < rows.size(); r0 += nrow * blocks) {
         c.Clear();
         TLatex pt;
         pt.SetNDC();
@@ -1165,11 +1224,11 @@ bool writePdfReport(const std::string& path, const std::string& table,
         pt.DrawLatex(0.5, 0.932, "curve = fitted tail (wide) component only");
 
         const double x0 = 0.070, x1 = 0.980, yTop = 0.900, yBot = 0.030;
-        const double pw = (x1 - x0) / ncol;
-        const double ph = (yTop - yBot) / kRowsPerPage;
+        const double pw = (x1 - x0) / ntot;
+        const double ph = (yTop - yBot) / nrow;
         std::vector<TPad*> pads;
         for (std::size_t r = 0; r < nrow; ++r) {
-          for (std::size_t k = 0; k < ncol; ++k) {
+          for (std::size_t k = 0; k < ntot; ++k) {
             const double px0 = x0 + pw * k;
             const double py1 = yTop - ph * r;
             auto* pad = new TPad(("g" + std::to_string(r0 + r) + "_" + std::to_string(k)).c_str(),
@@ -1184,11 +1243,14 @@ bool writePdfReport(const std::string& path, const std::string& table,
         }
         std::size_t ip = 0;
         for (std::size_t r = 0; r < nrow; ++r) {
-          for (std::size_t k = 0; k < ncol; ++k, ++ip) {
+          for (std::size_t k = 0; k < ntot; ++k, ++ip) {
             pads[ip]->cd();
-            auto it = hists.find(rows[r0 + r].keys[k]);
-            if (it == hists.end() || it->second == nullptr || it->second->GetEntries() == 0) {
-              // Say WHY a panel is blank rather than leaving dead space.
+            const std::size_t q  = k % ncol;                 // quantity within a block
+            const std::size_t di = r0 + (k / ncol) * nrow + r; // detector this pad shows
+            if (di >= rows.size())
+              continue;                                      // ragged last block
+            // Say WHY a panel is blank rather than leaving dead space.
+            auto blank = [&] {
               TLatex e;
               e.SetNDC();
               e.SetTextAlign(22);
@@ -1197,11 +1259,25 @@ bool writePdfReport(const std::string& path, const std::string& table,
               e.SetTextColor(static_cast<Color_t>(kGray + 1));
               e.DrawLatex(0.5, 0.55, "no data");
               e.SetTextSize(0.10);
-              e.DrawLatex(0.5, 0.35, (rows[r0 + r].name + " " + colnames[k]).c_str());
+              e.DrawLatex(0.5, 0.35, (rows[di].name + " " + colnames[q]).c_str());
+            };
+            auto it = hists.find(rows[di].keys[q]);
+            if (it == hists.end() || it->second == nullptr || it->second->GetEntries() < kMinEntries) {
+              blank();
               continue;
             }
             auto* px = projection(it->second, "_g");
-            px->SetTitle((rows[r0 + r].name + " " + colnames[k]).c_str());
+            // The parent can hold entries this slice does not: a shared-hit TH2
+            // counts every class row, so a per-detector projection of it came
+            // out empty and drew a bare +-2 ns frame with no bars in it.
+            // A peak of one or two counts is a flat smear, not a distribution:
+            // the shared-hit time residual is uniform across the whole
+            // coincidence gate by construction and rendered as a bare frame.
+            if (px == nullptr || px->GetEntries() < kMinEntries || px->GetMaximum() < 3) {
+              blank();
+              continue;
+            }
+            px->SetTitle((rows[di].name + " " + colnames[q]).c_str());
             px->SetLineWidth(2);
             px->SetFillColorAlpha(kAzure + 1, 0.35);
             // Default ~10 divisions collide at this pad size.
@@ -1215,15 +1291,40 @@ bool writePdfReport(const std::string& path, const std::string& table,
             zoomToData(px);
             px->Draw("hist");
 
+            // A residual booked over [0, x] is a distance, not a signed
+            // residual: it has no Gaussian core about zero, and fitting one
+            // gave an upward-arcing "tail" through the bulk. Quote the 68%
+            // containment radius instead, the standard for such a quantity.
+            if (it->second->GetXaxis()->GetXmin() >= 0.0) {
+              double r68 = 0, pr68[1] = {0.68};
+              px->GetQuantiles(1, &r68, pr68);
+              TLine q68;
+              q68.SetLineColor(kBlue + 2);
+              q68.SetLineStyle(2);
+              q68.DrawLine(r68, 0, r68, px->GetMaximum() * 1.05);
+              TLatex lq;
+              lq.SetNDC();
+              lq.SetTextFont(kFont);
+              lq.SetTextSize(0.075);
+              lq.SetTextColor(kRed + 1);
+              lq.SetTextAlign(33);
+              std::ostringstream oq;
+              oq << "R68 " << std::fixed << std::setprecision(r68 < 0.1 ? 3 : 2) << r68;
+              lq.DrawLatex(0.96, 0.94, oq.str().c_str());
+              continue;
+            }
+
             double fs = 0, ts = 0, mu = 0, ta = 0;
             if (TF1* f = fitDoubleGaussian(px, fs, ts, mu, ta); f != nullptr) {
-              auto* bg = new TF1((std::string(px->GetName()) + "_tl").c_str(), "gaus",
-                                 px->GetXaxis()->GetXmin(), px->GetXaxis()->GetXmax());
-              bg->SetParameters(ta, mu, ts);
-              bg->SetLineColor(kBlack);
-              bg->SetLineWidth(2);
-              bg->SetNpx(400);
-              bg->Draw("same");
+              if (ts > 0.0 && ta > 0.0) {
+                auto* bg = new TF1((std::string(px->GetName()) + "_tl").c_str(), "gaus",
+                                   px->GetXaxis()->GetXmin(), px->GetXaxis()->GetXmax());
+                bg->SetParameters(ta, mu, ts);
+                bg->SetLineColor(kBlack);
+                bg->SetLineWidth(2);
+                bg->SetNpx(400);
+                bg->Draw("same");
+              }
               TLine ln;
               ln.SetLineColor(kBlack);
               ln.DrawLine(0, 0, 0, px->GetMaximum() * 1.05);
@@ -1241,11 +1342,15 @@ bool writePdfReport(const std::string& path, const std::string& table,
               lab.SetTextColor(kRed + 1);
               lab.SetTextAlign(33);
               std::ostringstream os;
-              const double wlim = 0.5 * (px->GetXaxis()->GetXmax() - px->GetXaxis()->GetXmin());
+              const TAxis* ax   = px->GetXaxis();
+              const double wlim  = 0.5 * (ax->GetBinUpEdge(ax->GetLast()) -
+                                         ax->GetBinLowEdge(ax->GetFirst()));
               os << "core " << std::fixed << std::setprecision(fs < 0.1 ? 3 : 2) << fs;
               // A tail sitting on the upper bound is the fit running out of
               // range, not a width: report it as unbounded rather than as 45.
-              if (ts >= 0.98 * wlim)
+              if (ts <= 0.0)
+                os << " / 1 gaus";
+              else if (ts >= 0.98 * wlim)
                 os << " / tail >range";
               else
                 os << " / tail " << std::setprecision(ts < 0.1 ? 3 : 2) << ts;

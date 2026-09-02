@@ -562,7 +562,7 @@ TriggerBenchmark_service::tableCells() const {
     const ClassRow& r = it->second;
     rows.push_back({std::string(className(ci)), std::to_string(r.injected),
                     std::to_string(r.found),
-                    "--", // a fake carries no class, so it cannot be charged to one
+                    "n/a", // a fake carries no class; the count is on TOTAL
                     cell(r.found, r.injected, r.found, r.real_cands),
                     cell(r.trk_ok, r.real_cands, r.found_trk, r.trk_ok),
                     cell(r.cal_ok, r.real_cands, r.found_cal, r.cal_ok),

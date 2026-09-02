@@ -1284,9 +1284,42 @@ struct EventUnfolder : public JEventUnfolder {
     for (const auto& mcp : *m_mcparticles_in()) {
       if (!particleInGate(double(mcp.getTime())))
         continue;
-      auto newMcp = mcp.clone(true);
+      // clone WITHOUT relations: clone(true) kept parents/daughters
+      // ObjectIDs pointing at the PARENT frame's MCParticles. Serialized,
+      // such a ref is (name-hash, parent-frame index); the child's own
+      // "MCParticles" wins the name-hash lookup and the parent-sized index
+      // then lands OUT OF RANGE in the gated (smaller) collection —
+      // podio's setReferences crashes on it, which made every child tree
+      // unreadable through podio (podio-dump segfaulted on entry 0; only
+      // raw-branch uproot access ever worked). Same trap as the CKF
+      // association fix above; relations are re-linked child-locally below.
+      auto newMcp = mcp.clone(false);
       m_mcparticles_out()->push_back(newMcp);
       mcp_map.emplace(static_cast<uint32_t>(mcp.getObjectID().index), newMcp);
+    }
+    // Second pass: re-link parents/daughters AMONG THE KEPT clones, so the
+    // in-gate genealogy survives. A relation to a gated-out (or foreign-
+    // collection) particle is dropped — unset, not dangling — the same
+    // policy the sim-hit particle relation uses below.
+    const auto mcp_src_coll_id = m_mcparticles_in()->getID();
+    for (const auto& mcp : *m_mcparticles_in()) {
+      const auto it = mcp_map.find(static_cast<uint32_t>(mcp.getObjectID().index));
+      if (it == mcp_map.end())
+        continue;
+      for (const auto& par : mcp.getParents()) {
+        if (!par.isAvailable() || par.getObjectID().collectionID != mcp_src_coll_id)
+          continue;
+        const auto pit = mcp_map.find(static_cast<uint32_t>(par.getObjectID().index));
+        if (pit != mcp_map.end())
+          it->second.addToParents(pit->second);
+      }
+      for (const auto& dau : mcp.getDaughters()) {
+        if (!dau.isAvailable() || dau.getObjectID().collectionID != mcp_src_coll_id)
+          continue;
+        const auto dit = mcp_map.find(static_cast<uint32_t>(dau.getObjectID().index));
+        if (dit != mcp_map.end())
+          it->second.addToDaughters(dit->second);
+      }
     }
 
     // Now that this child's MCParticles exist, complete the sim-hit chain
