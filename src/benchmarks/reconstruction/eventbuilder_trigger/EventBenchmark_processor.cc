@@ -365,9 +365,33 @@ double EventBenchmark_processor::accumulateCallGraph(const JEvent& ev) {
   auto* cg = ev.GetJCallGraphRecorder();
   if (cg == nullptr || !cg->IsEnabled())
     return 0.0;
-  double total = 0.0;
-  for (const auto& n : cg->GetCallGraph()) {
-    const double secs = std::chrono::duration<double>(n.end_time - n.start_time).count();
+  // Each node is an EDGE, caller -> callee, timed over the callee's whole
+  // call -- which includes everything the callee itself called. Summing those
+  // durations counts every nested factory once for itself and again inside
+  // each of its ancestors: EventCandidates drives the entire reconstruction
+  // chain, so its inclusive time alone was most of the frame, and the column
+  // summed to roughly five times the wall clock.
+  //
+  // Charge each factory only its SELF time: its own duration minus the direct
+  // callees that ran inside it. Summed over the graph that telescopes down to
+  // the real work, and the shares become comparable.
+  const auto& g = cg->GetCallGraph();
+  double      total = 0.0;
+  for (std::size_t i = 0; i < g.size(); ++i) {
+    const auto&  n    = g[i];
+    double       secs = std::chrono::duration<double>(n.end_time - n.start_time).count();
+    for (std::size_t j = 0; j < g.size(); ++j) {
+      if (j == i)
+        continue;
+      const auto& m = g[j];
+      // A DIRECT callee of this call: same name, and nested inside its window
+      // (a factory called twice in one event has two disjoint windows).
+      if (m.caller_name == n.callee_name && m.caller_tag == n.callee_tag &&
+          m.start_time >= n.start_time && m.end_time <= n.end_time)
+        secs -= std::chrono::duration<double>(m.end_time - m.start_time).count();
+    }
+    if (secs < 0.0)
+      secs = 0.0; // clock granularity on a call that did nothing but delegate
     total += secs;
     std::string label = n.callee_name;
     if (!n.callee_tag.empty())

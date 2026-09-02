@@ -1136,7 +1136,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
     h.DrawLatex(0.5, 0.930, "Where the time goes");
     h.SetTextFont(kFont);
     h.SetTextSize(0.028);
-    h.DrawLatex(0.5, 0.888, "per-factory wall time, from JANA's call graph");
+    h.DrawLatex(0.5, 0.888, "per-factory self time -- callees subtracted -- from JANA's call graph");
 
     double total = 0.0;
     for (const auto& [n, sec, calls] : ctx.profile)
