@@ -516,10 +516,12 @@ void zoomToData(TH1* px) {
                                std::min(hi, px->GetXaxis()->GetXmax()));
 }
 
-TH1D* projection(TH2D* h, const std::string& suffix) {
+TH1D* projection(TH2D* h, const std::string& suffix, int ybin_lo = 1,
+                 int ybin_hi = kNumClasses) {
   if (h == nullptr)
     return nullptr;
-  auto* px = h->ProjectionX((std::string(h->GetName()) + suffix).c_str());
+  auto* px =
+      h->ProjectionX((std::string(h->GetName()) + suffix).c_str(), ybin_lo, ybin_hi);
   if (px == nullptr)
     return nullptr;
 
@@ -1264,7 +1266,9 @@ bool writePdfReport(const std::string& path, const std::string& table,
   // vs dR/energy), and interleaving them made a reader hunt for a detector.
   {
     struct Panel { std::string key; };
-    struct Row { std::string name; std::vector<std::string> keys; };
+    // `ybin` selects the class-axis row: the all-real aggregate, or the fake
+    // one. Each detector contributes two Rows, drawn one above the other.
+    struct Row { std::string name; std::vector<std::string> keys; int ybin; };
 
     // Below this a panel is a few counts smeared over the whole gate: no fit is
     // meaningful and the bars do not even render at this pad size.
@@ -1273,11 +1277,19 @@ bool writePdfReport(const std::string& path, const std::string& table,
                         const std::vector<Row>& all_rows) {
       // Drop detectors with nothing drawable rather than spending a sixth of
       // the page on three "no data" boxes in a row.
+      const auto binEntries = [&](const std::string& k, int ybin) {
+        auto i = hists.find(k);
+        if (i == hists.end() || i->second == nullptr)
+          return 0.0;
+        return i->second->Integral(1, i->second->GetNbinsX(), ybin, ybin);
+      };
       std::vector<Row> rows;
       for (const auto& r : all_rows) {
+        // Count in THIS row's class-axis bin. Judging a row by the whole
+        // histogram kept detectors alive whose every panel then blanked --
+        // a page of "no data" boxes under a real title.
         const bool any = std::any_of(r.keys.begin(), r.keys.end(), [&](const std::string& k) {
-          auto i = hists.find(k);
-          return i != hists.end() && i->second != nullptr && i->second->GetEntries() >= kMinEntries;
+          return binEntries(k, r.ybin) >= kMinEntries;
         });
         if (any)
           rows.push_back(r);
@@ -1320,7 +1332,9 @@ bool writePdfReport(const std::string& path, const std::string& table,
 
         const double x0 = 0.070, x1 = 0.980, yTop = 0.900, yBot = 0.030;
         const double pw = (x1 - x0) / ntot;
-        const double ph = (yTop - yBot) / nrow;
+        // Divide by the page capacity, not by how many rows this page got:
+        // a last page with two rows was stretching them to half a page each.
+        const double ph = (yTop - yBot) / kMaxRows;
         std::vector<TPad*> pads;
         for (std::size_t r = 0; r < nrow; ++r) {
           for (std::size_t k = 0; k < ntot; ++k) {
@@ -1357,11 +1371,13 @@ bool writePdfReport(const std::string& path, const std::string& table,
               e.DrawLatex(0.5, 0.35, (rows[di].name + " " + colnames[q]).c_str());
             };
             auto it = hists.find(rows[di].keys[q]);
-            if (it == hists.end() || it->second == nullptr || it->second->GetEntries() < kMinEntries) {
+            if (it == hists.end() || it->second == nullptr ||
+                binEntries(rows[di].keys[q], rows[di].ybin) < kMinEntries) {
               blank();
               continue;
             }
-            auto* px = projection(it->second, "_g");
+            auto* px = projection(it->second, "_g" + std::to_string(rows[di].ybin),
+                                  rows[di].ybin, rows[di].ybin);
             // The parent can hold entries this slice does not: a shared-hit TH2
             // counts every class row, so a per-detector projection of it came
             // out empty and drew a bare +-2 ns frame with no bars in it.
@@ -1448,14 +1464,24 @@ bool writePdfReport(const std::string& path, const std::string& table,
       }
     };
 
+    // Signal+background first, the fake row directly beneath it, so the two
+    // are read against each other for one detector before the eye moves on.
+    // ROOT bins are 1-based, hence the +1.
+    constexpr int kBinReal = ResolutionHists::kAllReal + 1;
+    constexpr int kBinFake = ResolutionHists::kFake + 1;
+
     std::vector<Row> trk;
-    for (const auto& d : ResolutionHists::trackerNames())
-      trk.push_back({d, {"time_" + d, "dx_" + d, "dy_" + d}});
+    for (const auto& d : ResolutionHists::trackerNames()) {
+      trk.push_back({d, {"time_" + d, "dx_" + d, "dy_" + d}, kBinReal});
+      trk.push_back({d + " (fake)", {"time_" + d, "dx_" + d, "dy_" + d}, kBinFake});
+    }
     drawGrid("Tracker residuals", {"#Deltat", "#Deltax", "#Deltay"}, trk);
 
     std::vector<Row> cal;
-    for (const auto& d : ResolutionHists::caloNames())
-      cal.push_back({d, {"time_" + d, "space_" + d, "energy_" + d}});
+    for (const auto& d : ResolutionHists::caloNames()) {
+      cal.push_back({d, {"time_" + d, "space_" + d, "energy_" + d}, kBinReal});
+      cal.push_back({d + " (fake)", {"time_" + d, "space_" + d, "energy_" + d}, kBinFake});
+    }
     drawGrid("Calorimeter residuals", {"#Deltat", "#DeltaR", "#DeltaE/E"}, cal);
     gStyle->SetTitleFontSize(saved_title_size);
   }

@@ -69,11 +69,13 @@ TH2D* ResolutionHists::get(const std::string& key, const std::string& title,
   // y axis is the class index: one bin per physics class, labelled, so the
   // projection for a single class is a plain ProjectionX on a named bin.
   auto* h = new TH2D(key.c_str(), (title + ";" + xlabel + ";class").c_str(), nbins, lo, hi,
-                     kNumClasses, -0.5, kNumClasses - 0.5);
+                     kNumClasses + 2, -0.5, kNumClasses + 1.5);
   if (m_dir == nullptr)
     h->SetDirectory(nullptr); // in-memory only; never written
   for (int c = 0; c < kNumClasses; ++c)
     h->GetYaxis()->SetBinLabel(c + 1, std::string(className(c)).c_str());
+  h->GetYaxis()->SetBinLabel(kAllReal + 1, "all-real");
+  h->GetYaxis()->SetBinLabel(kFake + 1, "fake");
   if (prev != nullptr)
     prev->cd();
   m_hists.emplace(key, h);
@@ -81,7 +83,7 @@ TH2D* ResolutionHists::get(const std::string& key, const std::string& title,
 }
 
 void ResolutionHists::fillTrackerTime(std::size_t det, int cls, double dt_ns) {
-  if (!enabled() || det >= trackerNames().size() || cls < 0)
+  if (!enabled() || det >= trackerNames().size() || cls < 0 || cls > kFake)
     return;
   // Binning has to match the sensor, not the gate. AC-LGAD TOF resolves ~30 ps;
   // at the 0.5 ns/bin a common +-50 ns axis would give, its entire peak falls
@@ -123,7 +125,7 @@ void ResolutionHists::fillTrackerTime(std::size_t det, int cls, double dt_ns) {
 }
 
 void ResolutionHists::fillTrackerSpace(std::size_t det, int cls, double dr_mm) {
-  if (!enabled() || det >= trackerNames().size() || cls < 0)
+  if (!enabled() || det >= trackerNames().size() || cls < 0 || cls > kFake)
     return;
   // MICRONS, not mm: every one of these residuals is sub-millimetre, and a mm
   // axis prints the interesting ones as a string of leading zeros.
@@ -139,7 +141,7 @@ void ResolutionHists::fillTrackerSpace(std::size_t det, int cls, double dr_mm) {
 }
 
 void ResolutionHists::fillTrackerSpaceRadial(std::size_t det, int cls, double dr_mm) {
-  if (!enabled() || det >= trackerNames().size() || cls < 0)
+  if (!enabled() || det >= trackerNames().size() || cls < 0 || cls > kFake)
     return;
   const bool   fine  = (det >= 6 && det < 10);
   const double range = fine ? 500.0 : 6000.0; // um, as for the in-plane residual
@@ -150,7 +152,7 @@ void ResolutionHists::fillTrackerSpaceRadial(std::size_t det, int cls, double dr
 }
 
 void ResolutionHists::fillTrackerX(std::size_t det, int cls, double dx_mm) {
-  if (!enabled() || det >= trackerNames().size() || cls < 0)
+  if (!enabled() || det >= trackerNames().size() || cls < 0 || cls > kFake)
     return;
   const bool   fine  = (det >= 6 && det < 10);
   const double range = fine ? 0.5 : 6.0;
@@ -160,7 +162,7 @@ void ResolutionHists::fillTrackerX(std::size_t det, int cls, double dx_mm) {
 }
 
 void ResolutionHists::fillTrackerY(std::size_t det, int cls, double dy_mm) {
-  if (!enabled() || det >= trackerNames().size() || cls < 0)
+  if (!enabled() || det >= trackerNames().size() || cls < 0 || cls > kFake)
     return;
   const bool   fine  = (det >= 6 && det < 10);
   const double range = fine ? 0.5 : 6.0;
@@ -170,7 +172,7 @@ void ResolutionHists::fillTrackerY(std::size_t det, int cls, double dy_mm) {
 }
 
 void ResolutionHists::fillCaloTime(std::size_t sys, int cls, double dt_ns) {
-  if (!enabled() || sys >= caloNames().size() || cls < 0)
+  if (!enabled() || sys >= caloNames().size() || cls < 0 || cls > kFake)
     return;
   get("time_" + caloNames()[sys], caloNames()[sys] + " cluster time residual",
       "t_{cluster} - t_{MC} [ns]", 800, -40.0, 40.0)
@@ -178,7 +180,7 @@ void ResolutionHists::fillCaloTime(std::size_t sys, int cls, double dt_ns) {
 }
 
 void ResolutionHists::fillCaloAngle(std::size_t sys, int cls, double dr) {
-  if (!enabled() || sys >= caloNames().size() || cls < 0)
+  if (!enabled() || sys >= caloNames().size() || cls < 0 || cls > kFake)
     return;
   get("space_" + caloNames()[sys], caloNames()[sys] + " cluster angular residual",
       "#DeltaR(cluster, MC) [rad]", 250, 0.0, 0.5)
@@ -186,7 +188,7 @@ void ResolutionHists::fillCaloAngle(std::size_t sys, int cls, double dr) {
 }
 
 void ResolutionHists::fillCaloEnergy(std::size_t sys, int cls, double frac) {
-  if (!enabled() || sys >= caloNames().size() || cls < 0)
+  if (!enabled() || sys >= caloNames().size() || cls < 0 || cls > kFake)
     return;
   get("energy_" + caloNames()[sys], caloNames()[sys] + " cluster energy residual",
       "(E_{rec} - E_{MC}) / E_{MC}", 200, -1.0, 1.0)
@@ -194,7 +196,7 @@ void ResolutionHists::fillCaloEnergy(std::size_t sys, int cls, double frac) {
 }
 
 void ResolutionHists::fillT0Residual(int cls, double dt_ns) {
-  if (!enabled() || cls < 0)
+  if (!enabled() || cls < 0 || cls > kFake)
     return;
   // +-400 ps at 2 ps/bin. t0 is TOF-dominated, so its accuracy is a ps-scale
   // quantity even though the window around it is tens of ns -- and it is
@@ -206,14 +208,14 @@ void ResolutionHists::fillT0Residual(int cls, double dt_ns) {
 }
 
 void ResolutionHists::fillT0Sigma(int cls, double sigma_ns) {
-  if (!enabled() || cls < 0)
+  if (!enabled() || cls < 0 || cls > kFake)
     return;
   get("t0_sigma", "reported t0 uncertainty", "#delta t_{0} [ps]", 1000, 0.0, 1000.0)
       ->Fill(sigma_ns * 1000.0, cls);
 }
 
 void ResolutionHists::fillT0Pull(int cls, double pull) {
-  if (!enabled() || cls < 0)
+  if (!enabled() || cls < 0 || cls > kFake)
     return;
   get("t0_pull", "candidate t0 pull", "(t_{0} - t_{MC}) / #delta t_{0}", 400, -10.0, 10.0)
       ->Fill(pull, cls);

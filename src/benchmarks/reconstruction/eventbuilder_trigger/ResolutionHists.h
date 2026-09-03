@@ -30,6 +30,8 @@
 
 #include <JANA/JApplicationFwd.h>
 
+#include "factories/eventbuilder/TruthClassLabels.h" // kNumClasses
+
 class TDirectory;
 class TH2D;
 
@@ -37,6 +39,20 @@ namespace eicrecon::eb {
 
 class ResolutionHists {
 public:
+  /// Two aggregate rows on the class axis, past the per-class ones.
+  ///
+  /// kAllReal takes EVERY hit with a truth link in a real candidate, whether
+  /// or not that hit carries a physics-class band. The per-class rows cannot
+  /// do this job: a hit is class-labelled only when its own collision was a
+  /// physics event, so on a detector like TOFBarrel -- a couple of hits per
+  /// child, most of them background -- summing the class rows plotted about
+  /// 1% of the available hits and the shape was noise.
+  ///
+  /// kFake takes the same from candidates the trigger credited with no
+  /// collision. Comparing the two rows is what says whether a fake looks like
+  /// a collision or like detector noise.
+  static constexpr int kAllReal = kNumClasses;
+  static constexpr int kFake    = kNumClasses + 1;
   /// Wired detector names, index-aligned with the collection lists the
   /// eventbuilder emits into each child.
   static const std::vector<std::string>& trackerNames();

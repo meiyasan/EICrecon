@@ -424,7 +424,9 @@ double EventBenchmark_processor::accumulateCallGraph(const JEvent& ev) {
   return total;
 }
 
-void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref) {
+void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref, bool is_real) {
+  // The row every hit goes to regardless of its own class label.
+  const int agg = is_real ? ResolutionHists::kAllReal : ResolutionHists::kFake;
   if (!m_bench->res().enabled())
     return;
 
@@ -479,9 +481,18 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
           has_sim = sim.isAvailable();
         }
       }
-      if (cls < 0)
-        continue; // unlabelled hit (background, or links not written)
+      // A hit with no class band is NOT unusable: it has a sim hit, so its
+      // residual is as good as any. It only cannot be attributed to a physics
+      // class. Send it to the aggregate row and keep the per-class rows to the
+      // labelled ones -- dropping it entirely plotted ~1% of TOFBarrel's hits.
       if (has_sim) {
+        // per-class row when the label exists, aggregate row always
+        auto& R = m_bench->res();
+        const auto fT = [&](double v) { if (cls >= 0) R.fillTrackerTime(d, cls, v); R.fillTrackerTime(d, agg, v); };
+        const auto fR = [&](double v) { if (cls >= 0) R.fillTrackerSpaceRadial(d, cls, v); R.fillTrackerSpaceRadial(d, agg, v); };
+        const auto fX = [&](double v) { if (cls >= 0) R.fillTrackerX(d, cls, v); R.fillTrackerX(d, agg, v); };
+        const auto fY = [&](double v) { if (cls >= 0) R.fillTrackerY(d, cls, v); R.fillTrackerY(d, agg, v); };
+        const auto fS = [&](double v) { if (cls >= 0) R.fillTrackerSpace(d, cls, v); R.fillTrackerSpace(d, agg, v); };
         const auto   r  = h.getPosition();
         // SENSOR time resolution. Two corrections are needed and both matter:
         //
@@ -509,10 +520,8 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
         const double     r_mm            = std::sqrt(static_cast<double>(r.x) * r.x +
                                                      static_cast<double>(r.y) * r.y +
                                                      static_cast<double>(r.z) * r.z);
-        m_bench->res().fillTrackerTime(d, cls,
-                                       static_cast<double>(h.getTime()) +
-                                           r_mm * kInvC_ns_per_mm -
-                                           static_cast<double>(sim.getTime()));
+        fT(static_cast<double>(h.getTime()) + r_mm * kInvC_ns_per_mm -
+           static_cast<double>(sim.getTime()));
         const auto   sp = sim.getPosition();
         // Decompose instead of taking the 3D magnitude. The barrel readout is
         // a CylindricalGridPhiZ pinned to a FIXED radius per segmentation, so
@@ -522,11 +531,9 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
         // top of the real in-plane resolution.
         const double r_rec = std::hypot(static_cast<double>(r.x), static_cast<double>(r.y));
         const double r_sim = std::hypot(static_cast<double>(sp.x), static_cast<double>(sp.y));
-        m_bench->res().fillTrackerSpaceRadial(d, cls, r_rec - r_sim);
-        m_bench->res().fillTrackerX(d, cls,
-                                    static_cast<double>(r.x) - static_cast<double>(sp.x));
-        m_bench->res().fillTrackerY(d, cls,
-                                    static_cast<double>(r.y) - static_cast<double>(sp.y));
+        fR(r_rec - r_sim);
+        fX(static_cast<double>(r.x) - static_cast<double>(sp.x));
+        fY(static_cast<double>(r.y) - static_cast<double>(sp.y));
 
         double dphi = std::atan2(static_cast<double>(r.y), static_cast<double>(r.x)) -
                       std::atan2(static_cast<double>(sp.y), static_cast<double>(sp.x));
@@ -536,7 +543,7 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
           dphi += 2 * M_PI;
         const double rphi = r_sim * dphi;                                  // arc length
         const double dz   = static_cast<double>(r.z) - static_cast<double>(sp.z);
-        m_bench->res().fillTrackerSpace(d, cls, std::hypot(rphi, dz));
+        fS(std::hypot(rphi, dz));
       }
     }
   }
@@ -586,11 +593,15 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
           if (!raw.isAvailable())
             continue;
           auto it = truth.find(static_cast<std::uint32_t>(raw.getObjectID().index));
-          if (it == truth.end() || it->second.cls < 0)
+          if (it == truth.end())
             continue;
-          const int cls = it->second.cls;
+          const int cls = it->second.cls; // may be -1: aggregate row only
           const auto sim = it->second.sim;
           if (sim.isAvailable()) {
+            auto& R = m_bench->res();
+            const auto fT = [&](double v) { if (cls >= 0) R.fillTrackerTime(det, cls, v); R.fillTrackerTime(det, agg, v); };
+            const auto fR = [&](double v) { if (cls >= 0) R.fillTrackerSpaceRadial(det, cls, v); R.fillTrackerSpaceRadial(det, agg, v); };
+            const auto fS = [&](double v) { if (cls >= 0) R.fillTrackerSpace(det, cls, v); R.fillTrackerSpace(det, agg, v); };
             const auto r  = h.getPosition();
             // Sensor resolution, undoing the r/c alignment as at the first
             // fill site above.
@@ -598,24 +609,20 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
             const double     r_mm            = std::sqrt(static_cast<double>(r.x) * r.x +
                                                          static_cast<double>(r.y) * r.y +
                                                          static_cast<double>(r.z) * r.z);
-            m_bench->res().fillTrackerTime(det, cls,
-                                           static_cast<double>(h.getTime()) +
-                                               r_mm * kInvC_ns_per_mm -
-                                               static_cast<double>(sim.getTime()));
+            fT(static_cast<double>(h.getTime()) + r_mm * kInvC_ns_per_mm -
+               static_cast<double>(sim.getTime()));
             const auto sp = sim.getPosition();
             const double r_rec = std::hypot(static_cast<double>(r.x), static_cast<double>(r.y));
             const double r_sim = std::hypot(static_cast<double>(sp.x), static_cast<double>(sp.y));
-            m_bench->res().fillTrackerSpaceRadial(det, cls, r_rec - r_sim);
+            fR(r_rec - r_sim);
             double dphi = std::atan2(static_cast<double>(r.y), static_cast<double>(r.x)) -
                           std::atan2(static_cast<double>(sp.y), static_cast<double>(sp.x));
             while (dphi > M_PI)
               dphi -= 2 * M_PI;
             while (dphi < -M_PI)
               dphi += 2 * M_PI;
-            m_bench->res().fillTrackerSpace(
-                det, cls,
-                std::hypot(r_sim * dphi,
-                           static_cast<double>(r.z) - static_cast<double>(sp.z)));
+            fS(std::hypot(r_sim * dphi,
+                          static_cast<double>(r.z) - static_cast<double>(sp.z)));
           }
         }
       }
@@ -638,7 +645,10 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
       const int cls = classIndexOfStatus(mc.getGeneratorStatus());
       if (cls < 0)
         continue;
-      m_bench->res().fillCaloTime(sysi, cls, static_cast<double>(clu.getTime()) - t_ref);
+      if (is_real) {
+        m_bench->res().fillCaloTime(sysi, cls, static_cast<double>(clu.getTime()) - t_ref);
+        m_bench->res().fillCaloTime(sysi, agg, static_cast<double>(clu.getTime()) - t_ref);
+      }
 
       const auto mom = mc.getMomentum();
       const double pt = std::hypot(static_cast<double>(mom.x), static_cast<double>(mom.y));
@@ -653,10 +663,12 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
         dphi += 2 * M_PI;
       dphi -= M_PI;
       m_bench->res().fillCaloAngle(sysi, cls, std::hypot(c_eta - mc_eta, dphi));
+      m_bench->res().fillCaloAngle(sysi, agg, std::hypot(c_eta - mc_eta, dphi));
 
       const double e_mc = std::hypot(pt, static_cast<double>(mom.z));
       if (e_mc > 0.0)
         m_bench->res().fillCaloEnergy(sysi, cls, (static_cast<double>(clu.getEnergy()) - e_mc) / e_mc);
+        m_bench->res().fillCaloEnergy(sysi, agg, (static_cast<double>(clu.getEnergy()) - e_mc) / e_mc);
     }
   }
 }
@@ -1073,8 +1085,15 @@ void EventBenchmark_processor::ProcessSequential(const JEvent& event) {
   // skipped rather than referenced to a meaningless mc_t of 0.
   if (info != nullptr && info->size() > 0) {
     const auto wv = (*info)[0].getWeights();
+    // Fakes reach the residuals too. Their tracker residuals are referenced to
+    // the SIM HIT, not to the collision time, so they are perfectly well
+    // defined without a truth t0 -- only the calo cluster time needs one, and
+    // that fill is gated inside. What a fake's hits look like is the whole
+    // question behind the fake row.
+    if (wv.size() > w::MC_T && !isReal(wv[w::FLAG]))
+      fillResolutions(event, 0.0, false);
     if (wv.size() > w::MC_T && isReal(wv[w::FLAG])) {
-      fillResolutions(event, wv[w::MC_T]);
+      fillResolutions(event, wv[w::MC_T], true);
 
       // Candidate-level timing: how well the trigger's own t0 recovers the
       // true collision time, and whether the uncertainty it quotes for that

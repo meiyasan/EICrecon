@@ -57,7 +57,7 @@ private:
   /// t0 is the candidate's own weights[T0]; the class comes from the per-hit
   /// RawHitLink label on the tracker side and from the matched MC particle on
   /// the calo side.
-  void fillResolutions(const JEvent& event, double t_ref);
+  void fillResolutions(const JEvent& event, double t_ref, bool is_real);
   /// Sum one event's call graph into the profile; returns its total seconds.
   double accumulateCallGraph(const JEvent& ev);
 
