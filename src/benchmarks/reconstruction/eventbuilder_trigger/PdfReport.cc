@@ -1490,6 +1490,19 @@ bool writePdfReport(const std::string& path, const std::string& table,
 
             double fs = 0, ts = 0, mu = 0, ta = 0;
             TF1*   fit = fitDoubleGaussian(px, fs, ts, mu, ta);
+            // Below the fit's entry threshold, quote what the histogram itself
+            // says. Five free parameters against twenty entries would print
+            // numbers without meaning, but a silent panel is worse: it reads
+            // as a failure rather than as thin statistics. mean/RMS need no
+            // fit, so they are labelled as what they are.
+            if (fit == nullptr) {
+              mu = px->GetMean(); // over the visible range
+              fs = px->GetRMS();
+              if (fs > 0.0)
+                px->SetTitle(stats("mean = " + fmtUnit(mu, true, unit) + ",  RMS = " +
+                                   fmtUnit(fs, true, unit))
+                                 .c_str());
+            }
             if (fit != nullptr)
               // NOT a semicolon: TH1::SetTitle reads ';' as the axis-title
               // separator, so "mu = ...; sigma = ..." set the x axis title to
@@ -1503,16 +1516,18 @@ bool writePdfReport(const std::string& path, const std::string& table,
               pf->Draw("hist same");
             {
               TF1* f = fit;
-              if (f != nullptr) {
-              if (ts > 0.0 && ta > 0.0) {
-                auto* bg = new TF1((std::string(px->GetName()) + "_tl").c_str(), "gaus",
-                                   px->GetXaxis()->GetXmin(), px->GetXaxis()->GetXmax());
-                bg->SetParameters(ta, mu, ts);
-                bg->SetLineColor(kBlack);
-                bg->SetLineWidth(2);
-                bg->SetNpx(400);
-                bg->Draw("same");
-              }
+              if (f != nullptr || fs > 0.0) {
+                if (f != nullptr) {
+                if (ts > 0.0 && ta > 0.0) {
+                  auto* bg = new TF1((std::string(px->GetName()) + "_tl").c_str(), "gaus",
+                                     px->GetXaxis()->GetXmin(), px->GetXaxis()->GetXmax());
+                  bg->SetParameters(ta, mu, ts);
+                  bg->SetLineColor(kBlack);
+                  bg->SetLineWidth(2);
+                  bg->SetNpx(400);
+                  bg->Draw("same");
+                }
+                }
               // mu solid, mu +- sigma dashed. Drawn to the frame top so they
               // read as reference lines rather than as part of the data.
               const double top = px->GetMaximum();
