@@ -6,6 +6,8 @@
 #include "TriggerBenchmark_service.h"
 
 #include <algorithm>
+#include <climits>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -151,9 +153,36 @@ void TriggerBenchmark_service::tapFinished() {
     report(true);
 }
 
+std::vector<TriggerBenchmark_service::FoundKey>
+TriggerBenchmark_service::missedCollisions() const {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  std::vector<FoundKey>       out;
+  // Matched with a TOLERANCE, not by key equality. The injected time is the
+  // representative of a dt-merge over that collision's MCParticles, while the
+  // recovered time comes from the candidate's trigger_classes tail; the two
+  // describe the same collision but need not agree to the picosecond.
+  const double tol = std::max(m_totals.dt_ns, 1.0);
+  for (const auto& [key, t_inj] : m_injected_keys) {
+    const auto frame = std::get<0>(key);
+    const auto ci    = std::get<1>(key);
+    bool       seen  = false;
+    for (auto it = m_found.lower_bound(std::make_tuple(frame, ci, LONG_MIN));
+         it != m_found.end() && std::get<0>(it->first) == frame && std::get<1>(it->first) == ci;
+         ++it)
+      if (std::fabs(static_cast<double>(std::get<2>(it->first)) / 1000.0 - t_inj) <= tol) {
+        seen = true;
+        break;
+      }
+    if (!seen)
+      out.push_back({frame, ci, t_inj, false, false});
+  }
+  return out;
+}
+
 void TriggerBenchmark_service::addFrame(const Totals& d,
                                         const std::map<int, ClassRow>& per_class,
-                                        const std::vector<FoundKey>& found_keys) {
+                                        const std::vector<FoundKey>& found_keys,
+                                        const std::vector<FoundKey>& injected_keys) {
   std::lock_guard<std::mutex> lock(m_mutex);
 
   m_totals.frames += d.frames;
@@ -209,6 +238,10 @@ void TriggerBenchmark_service::addFrame(const Totals& d,
   // choice, and a biased one wherever duplicates are common (the time purity
   // here runs near 76%, so roughly one collision in four has a second
   // claimant whose flags were being discarded).
+  for (const auto& ik : injected_keys)
+    m_injected_keys.emplace(std::make_tuple(ik.frame, ik.cls, static_cast<long>(ik.time * 1000.0)),
+                            ik.time);
+
   for (const auto& fk : found_keys) {
     const auto   ci = fk.cls;
     const double t  = fk.time;
@@ -418,6 +451,24 @@ void TriggerBenchmark_service::report(bool final_report) {
     ctx.class_profile = classProfile();
     if (writePdfReport(m_pdf_path, table, m_res.hists(), ctx) && m_log)
       m_log->info("benchmark: wrote {}", m_pdf_path);
+  }
+  // Name the collisions the trigger never recovered. "199/200" says one was
+  // missed; only this says which frame and when, which is what can actually be
+  // chased back into the input.
+  if (m_log) {
+    const auto missed = missedCollisions();
+    if (!missed.empty()) {
+      m_log->info("benchmark: {} injected collision(s) never recovered", missed.size());
+      std::size_t shown = 0;
+      for (const auto& m : missed) {
+        if (shown++ >= 20) {
+          m_log->info("benchmark:   ... and {} more", missed.size() - 20);
+          break;
+        }
+        m_log->info("benchmark:   frame {} class {} t = {:.3f} ns", m.frame, className(m.cls),
+                    m.time);
+      }
+    }
   }
 }
 

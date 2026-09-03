@@ -146,6 +146,7 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
   Totals                  d;
   std::map<int, ClassRow> per_class;
   std::vector<TriggerBenchmark_service::FoundKey> found_keys;
+  std::vector<TriggerBenchmark_service::FoundKey> injected_keys;
 
   d.frames = 1;
   
@@ -213,6 +214,8 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
       per_class[ci].injected += v.size();
       d.collisions_injected += v.size();
       all_t.insert(all_t.end(), v.begin(), v.end());
+      for (double t : v)
+        injected_keys.push_back({frame, ci, t, false, false});
     }
     // Spacing against the window, across ALL classes: two collisions of
     // different classes are still two collisions, and it is their separation
@@ -373,7 +376,7 @@ void EventBenchmark_processor::processFrame(const JEvent& parent, std::uint64_t 
       ++per_class[ci].proc_cands;
     }
 
-  m_bench->addFrame(d, per_class, found_keys);
+  m_bench->addFrame(d, per_class, found_keys, injected_keys);
   m_bench->maybeReport();
 }
 

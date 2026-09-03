@@ -213,7 +213,14 @@ public:
   };
 
   void addFrame(const Totals& delta, const std::map<int, ClassRow>& per_class,
-                const std::vector<FoundKey>& found_keys);
+                const std::vector<FoundKey>& found_keys,
+                const std::vector<FoundKey>& injected_keys);
+
+  /// Injected collisions that no candidate ever recovered, as
+  /// (frame, class, time). The efficiency column says HOW MANY were missed;
+  /// this says WHICH, which is the only form of the number that can be chased
+  /// back into the input.
+  std::vector<FoundKey> missedCollisions() const;
   void addEvent(const Totals& delta, const std::map<int, ClassRow>& per_class);
 
   /// Frames that produced no child event and so never reached the tap. Their
@@ -282,6 +289,9 @@ private:
   /// counts if ANY of those candidates passed it, so the value has to be
   /// carried rather than decided at first insert.
   std::map<std::tuple<std::uint64_t, int, long>, unsigned> m_found;
+  /// Every injected collision, keyed as m_found is. The set difference at the
+  /// end is exactly the collisions the trigger missed.
+  std::map<std::tuple<std::uint64_t, int, long>, double> m_injected_keys;
 
   int  m_taps_registered = 0;
   int  m_taps_finished   = 0;

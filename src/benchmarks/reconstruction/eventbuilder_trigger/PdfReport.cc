@@ -703,28 +703,42 @@ bool writePdfReport(const std::string& path, const std::string& table,
       n << ctx.input_files.size() << " file" << (ctx.input_files.size() == 1 ? "" : "s");
       kv.emplace_back("Input:", n.str());
     }
-    const std::size_t kShow = 3;
-    for (std::size_t f = 0; f < ctx.input_files.size() && f < kShow; ++f) {
-      const std::string& in = ctx.input_files[f];
-      // Show the tail: the leading path is common to all of them, the part
-      // that identifies the file is at the end.
-      // Wrap at the width that actually fits between the value column and the
-      // right margin; a fixed character count overflowed the page.
-      const int    wrap  = monoFit(0.46, 0.026);
-      const std::string shown =
-          in.size() > static_cast<std::size_t>(3 * wrap)
-              ? "..." + in.substr(in.size() - static_cast<std::size_t>(3 * wrap))
-              : in;
-      for (std::size_t i = 0; i < shown.size(); i += wrap)
-        kv.emplace_back("", shown.substr(i, wrap));
-    }
-    if (ctx.input_files.size() > kShow) {
-      std::ostringstream m;
-      m << "(+" << ctx.input_files.size() - kShow << " more)";
-      kv.emplace_back("", m.str());
-    }
 
-    drawKeyValue(kv, 0.615);
+    const double after_kv = drawKeyValueEnd(kv, 0.615);
+
+    // Inputs in FULL, in mono, broken after '/'. They were front-truncated to
+    // "...0_minQ2=1_beamEffects_..." -- which hides the directory, the one part
+    // that says which dataset this is -- and wrapped by character count in a
+    // proportional font, so the block ran off the page and into the timestamp
+    // below. Mono makes the count exact; '/' makes the breaks readable.
+    if (!ctx.input_files.empty()) {
+      TLatex m;
+      m.SetNDC();
+      m.SetTextFont(kMono);
+      m.SetTextSize(0.014);
+      m.SetTextAlign(11);
+      const int    wrap  = monoFit(0.20, 0.014);
+      const double y_min = 0.135; // clear of the timestamp at 0.10
+      double       y     = after_kv;
+      std::size_t  shown = 0;
+      for (const auto& in : ctx.input_files) {
+        const auto lines = wrapPath(in, wrap);
+        // Whole files only: half a path, cut mid-name, tells the reader less
+        // than an honest "+N more".
+        if (y - 0.021 * static_cast<double>(lines.size()) < y_min)
+          break;
+        for (const auto& line : lines) {
+          m.DrawLatex(0.20, y, line.c_str());
+          y -= 0.021;
+        }
+        ++shown;
+      }
+      if (shown < ctx.input_files.size()) {
+        std::ostringstream o;
+        o << "(+" << ctx.input_files.size() - shown << " more)";
+        m.DrawLatex(0.20, y, o.str().c_str());
+      }
+    }
 
     t.SetTextFont(kFont);
     t.SetTextSize(0.020);
