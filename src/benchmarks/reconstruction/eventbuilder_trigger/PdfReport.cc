@@ -516,8 +516,11 @@ void zoomToData(TH1* px) {
                                std::min(hi, px->GetXaxis()->GetXmax()));
 }
 
+/// `force_factor` reuses a rebinning already chosen for another slice of the
+/// same histogram -- two slices drawn in one pad must share bin edges -- and
+/// `factor_out` reports the factor this call picked.
 TH1D* projection(TH2D* h, const std::string& suffix, int ybin_lo = 1,
-                 int ybin_hi = kNumClasses) {
+                 int ybin_hi = kNumClasses, int force_factor = 0, int* factor_out = nullptr) {
   if (h == nullptr)
     return nullptr;
   auto* px =
@@ -551,12 +554,14 @@ TH1D* projection(TH2D* h, const std::string& suffix, int ybin_lo = 1,
     const double w_fd = (iqr > 0.0) ? 2.0 * iqr / std::cbrt(neff) : (hi - lo) / 20.0;
     const int target = std::clamp(static_cast<int>((hi - lo) / std::max(w_fd, 1e-12)), 10, 60);
     const int in_view = std::max(1, static_cast<int>((hi - lo) / bw));
-    int       factor  = std::max(1, in_view / target);
+    int       factor  = force_factor > 0 ? force_factor : std::max(1, in_view / target);
     // Rebin() needs a divisor of the bin count.
     while (factor > 1 && px->GetNbinsX() % factor != 0)
       --factor;
     if (factor > 1)
       px->Rebin(factor);
+    if (factor_out != nullptr)
+      *factor_out = factor;
   }
   return px;
 }
@@ -1268,7 +1273,9 @@ bool writePdfReport(const std::string& path, const std::string& table,
     struct Panel { std::string key; };
     // `ybin` selects the class-axis row: the all-real aggregate, or the fake
     // one. Each detector contributes two Rows, drawn one above the other.
-    struct Row { std::string name; std::vector<std::string> keys; int ybin; };
+    // `ybin` is the slice drawn filled, `fakebin` the one overlaid as a dashed
+    // outline in the same pad (0 = none).
+    struct Row { std::string name; std::vector<std::string> keys; int ybin; int fakebin; };
 
     // Below this a panel is a few counts smeared over the whole gate: no fit is
     // meaningful and the bars do not even render at this pad size.
@@ -1330,7 +1337,8 @@ bool writePdfReport(const std::string& path, const std::string& table,
         pt.DrawLatex(0.5, 0.960, title.c_str());
         pt.SetTextFont(kFont);
         pt.SetTextSize(0.020);
-        pt.DrawLatex(0.5, 0.932, "curve = fitted tail (wide) component only");
+        pt.DrawLatex(0.5, 0.932,
+                     "filled = real candidates   dashed = fake   curve = fitted tail component");
 
         const double x0 = 0.070, x1 = 0.980, yTop = 0.900, yBot = 0.030;
         const double pw = (x1 - x0) / ntot;
@@ -1378,8 +1386,16 @@ bool writePdfReport(const std::string& path, const std::string& table,
               blank();
               continue;
             }
-            auto* px = projection(it->second, "_g" + std::to_string(rows[di].ybin),
-                                  rows[di].ybin, rows[di].ybin);
+            int   fac = 0;
+            auto* px  = projection(it->second, "_g" + std::to_string(rows[di].ybin),
+                                   rows[di].ybin, rows[di].ybin, 0, &fac);
+            // The fake slice of the SAME histogram, rebinned to the same edges
+            // so the two can share a frame.
+            TH1D* pf = (rows[di].fakebin > 0)
+                           ? projection(it->second, "_gf", rows[di].fakebin, rows[di].fakebin, fac)
+                           : nullptr;
+            if (pf != nullptr && pf->GetEntries() < kMinEntries)
+              pf = nullptr;
             // The parent can hold entries this slice does not: a shared-hit TH2
             // counts every class row, so a per-detector projection of it came
             // out empty and drew a bare +-2 ns frame with no bars in it.
@@ -1391,10 +1407,19 @@ bool writePdfReport(const std::string& path, const std::string& table,
               continue;
             }
             px->SetTitle((rows[di].name + " " + colnames[q]).c_str());
-            px->SetLineWidth(2);
             const Color_t dcol = detectorColor(rows[di].name);
+            // Real: filled, no outline of its own. Fake: dashed outline, no
+            // fill, so the two are told apart by style rather than by colour
+            // and can sit in one frame.
+            px->SetLineWidth(1);
             px->SetLineColor(dcol);
             px->SetFillColorAlpha(dcol, 0.35);
+            if (pf != nullptr) {
+              pf->SetLineColor(dcol);
+              pf->SetLineStyle(2);
+              pf->SetLineWidth(2);
+              pf->SetFillStyle(0);
+            }
             // Default ~10 divisions collide at this pad size.
             px->GetXaxis()->SetNdivisions(505);
             px->GetYaxis()->SetNdivisions(505);
@@ -1415,7 +1440,22 @@ bool writePdfReport(const std::string& path, const std::string& table,
             // -- and left the panel title at the style default. The pad title
             // is a gStyle property, set once around the grid below.
             zoomToData(px);
-            px->SetMaximum(px->GetMaximum() * 1.25); // headroom above the peak
+            if (pf != nullptr) {
+              // One frame, so one x range.
+              const TAxis* a = px->GetXaxis();
+              pf->GetXaxis()->SetRangeUser(a->GetBinLowEdge(a->GetFirst()),
+                                           a->GetBinUpEdge(a->GetLast()));
+            }
+            // Scale the y axis only AFTER fitting. fitDoubleGaussian seeds its
+            // amplitude from GetMaximum(), and GetMaximum() returns the USER
+            // maximum once one has been set -- so raising the axis first fed
+            // the fit a wrong peak height and moved the sigma it reported
+            // (TOFBarrel dx read 0.055 mm against the 0.132 mm it fits to).
+            const auto applyMax = [&] {
+              const double top =
+                  (pf != nullptr) ? std::max(px->GetMaximum(), pf->GetMaximum()) : px->GetMaximum();
+              px->SetMaximum(top * 1.25);
+            };
 
             // The fitted values belong in the title, so fit BEFORE drawing.
             // Two lines: the panel's name stays large, the numbers sit under
@@ -1436,11 +1476,14 @@ bool writePdfReport(const std::string& path, const std::string& table,
               double r68 = 0, pr68[1] = {0.68};
               px->GetQuantiles(1, &r68, pr68);
               px->SetTitle(stats("R_{68} = " + fmtUnit(r68, true, unit)).c_str());
+              applyMax();
               px->Draw("hist");
+              if (pf != nullptr)
+                pf->Draw("hist same");
               TLine q68;
               q68.SetLineColor(kBlue + 2);
               q68.SetLineStyle(2);
-              q68.SetLineWidth(2);
+              q68.SetLineWidth(1);
               q68.DrawLine(r68, 0, r68, px->GetMaximum());
               continue;
             }
@@ -1454,7 +1497,10 @@ bool writePdfReport(const std::string& path, const std::string& table,
               px->SetTitle(stats("#mu = " + fmtUnit(mu, true, unit) + ",  #sigma = " +
                                  fmtUnit(fs, true, unit))
                                .c_str());
+            applyMax();
             px->Draw("hist");
+            if (pf != nullptr)
+              pf->Draw("hist same");
             {
               TF1* f = fit;
               if (f != nullptr) {
@@ -1472,7 +1518,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
               const double top = px->GetMaximum();
               TLine ln;
               ln.SetLineColor(kBlack);
-              ln.SetLineWidth(2);
+              ln.SetLineWidth(1);
               ln.DrawLine(mu, 0, mu, top);
               ln.SetLineColor(kBlue + 2);
               ln.SetLineStyle(2);
@@ -1490,24 +1536,20 @@ bool writePdfReport(const std::string& path, const std::string& table,
       }
     };
 
-    // Signal+background first, the fake row directly beneath it, so the two
-    // are read against each other for one detector before the eye moves on.
-    // ROOT bins are 1-based, hence the +1.
+    // Signal+background filled, fake overlaid on it as a dashed outline: one
+    // pad per detector and quantity, so the two shapes are compared directly
+    // rather than across a row boundary. ROOT bins are 1-based, hence the +1.
     constexpr int kBinReal = ResolutionHists::kAllReal + 1;
     constexpr int kBinFake = ResolutionHists::kFake + 1;
 
     std::vector<Row> trk;
-    for (const auto& d : ResolutionHists::trackerNames()) {
-      trk.push_back({d, {"time_" + d, "dx_" + d, "dy_" + d}, kBinReal});
-      trk.push_back({d + " (fake)", {"time_" + d, "dx_" + d, "dy_" + d}, kBinFake});
-    }
+    for (const auto& d : ResolutionHists::trackerNames())
+      trk.push_back({d, {"time_" + d, "dx_" + d, "dy_" + d}, kBinReal, kBinFake});
     drawGrid("Tracker residuals", {"#Deltat", "#Deltax", "#Deltay"}, trk);
 
     std::vector<Row> cal;
-    for (const auto& d : ResolutionHists::caloNames()) {
-      cal.push_back({d, {"time_" + d, "space_" + d, "energy_" + d}, kBinReal});
-      cal.push_back({d + " (fake)", {"time_" + d, "space_" + d, "energy_" + d}, kBinFake});
-    }
+    for (const auto& d : ResolutionHists::caloNames())
+      cal.push_back({d, {"time_" + d, "space_" + d, "energy_" + d}, kBinReal, kBinFake});
     drawGrid("Calorimeter residuals", {"#Deltat", "#DeltaR", "#DeltaE/E"}, cal);
     gStyle->SetTitleFontSize(saved_title_size);
   }
