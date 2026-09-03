@@ -1413,6 +1413,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
             // -- and left the panel title at the style default. The pad title
             // is a gStyle property, set once around the grid below.
             zoomToData(px);
+            px->SetMaximum(px->GetMaximum() * 1.25); // room for the mu/sigma text
             px->Draw("hist");
 
             // A residual booked over [0, x] is a distance, not a signed
@@ -1422,12 +1423,12 @@ bool writePdfReport(const std::string& path, const std::string& table,
             if (it->second->GetXaxis()->GetXmin() >= 0.0) {
               double r68 = 0, pr68[1] = {0.68};
               px->GetQuantiles(1, &r68, pr68);
-              TLine q68;
-              q68.SetLineColor(kBlue + 2);
-              q68.SetLineStyle(2);
-              // The marker line carries it; the number itself belongs on the
-              // fitted-resolution page, with its unit and its uncertainty.
-              q68.DrawLine(r68, 0, r68, px->GetMaximum() * 1.05);
+              TLatex lq;
+              lq.SetNDC();
+              lq.SetTextFont(kFont);
+              lq.SetTextSize(0.068);
+              lq.SetTextAlign(33);
+              lq.DrawLatex(0.955, 0.825, ("R_{68} = " + fmtUnit(r68, true, axisUnit(px))).c_str());
               continue;
             }
 
@@ -1442,21 +1443,14 @@ bool writePdfReport(const std::string& path, const std::string& table,
                 bg->SetNpx(400);
                 bg->Draw("same");
               }
-              TLine ln;
-              ln.SetLineColor(kBlack);
-              ln.DrawLine(0, 0, 0, px->GetMaximum() * 1.05);
-              ln.SetLineColor(kBlue + 2);
-              ln.SetLineStyle(2);
-              for (int sg = -1; sg <= 1; sg += 2) {
-                const double xv = mu + sg * fs;
-                if (xv > px->GetXaxis()->GetXmin() && xv < px->GetXaxis()->GetXmax())
-                  ln.DrawLine(xv, 0, xv, px->GetMaximum() * 1.05);
-              }
-              // No printed width here. "core 8.00 / tail >range" was two
-              // unitless numbers and a qualifier about the fit range, sitting
-              // where the title should be; the widths belong on the fitted
-              // resolution page, which carries their units. The drawn curve
-              // and the +-sigma markers say the same thing graphically.
+              const std::string u = axisUnit(px);
+              TLatex lab;
+              lab.SetNDC();
+              lab.SetTextFont(kFont);
+              lab.SetTextSize(0.068);
+              lab.SetTextAlign(33);
+              lab.DrawLatex(0.955, 0.825, ("#mu = " + fmtUnit(mu, true, u)).c_str());
+              lab.DrawLatex(0.955, 0.715, ("#sigma = " + fmtUnit(fs, true, u)).c_str());
             }
           }
         }
