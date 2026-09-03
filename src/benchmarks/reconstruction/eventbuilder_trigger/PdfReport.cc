@@ -1301,7 +1301,9 @@ bool writePdfReport(const std::string& path, const std::string& table,
       // came out large and "BackwardMPGDEndcap dt" small on the same page.
       // Size every title from the LONGEST label instead, so a page reads as
       // one set of plots rather than a dozen different ones.
-      std::size_t longest = 1;
+      // The stats line renders at 70%, so ~26 characters of it costs about 18
+      // of the name line; size for whichever of the two is wider.
+      std::size_t longest = 18;
       for (const auto& r : rows)
         for (const auto& q : colnames)
           longest = std::max(longest, r.name.size() + 1 + q.size());
@@ -1345,7 +1347,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
             pad->SetLeftMargin(0.17);
             pad->SetBottomMargin(0.28); // the centred axis title sits here
             pad->SetRightMargin(0.04);
-            pad->SetTopMargin(0.15);
+            pad->SetTopMargin(0.21);
             pad->Draw();
             pads.push_back(pad);
           }
@@ -1413,8 +1415,18 @@ bool writePdfReport(const std::string& path, const std::string& table,
             // -- and left the panel title at the style default. The pad title
             // is a gStyle property, set once around the grid below.
             zoomToData(px);
-            px->SetMaximum(px->GetMaximum() * 1.25); // room for the mu/sigma text
-            px->Draw("hist");
+            px->SetMaximum(px->GetMaximum() * 1.25); // headroom above the peak
+
+            // The fitted values belong in the title, so fit BEFORE drawing.
+            // Two lines: the panel's name stays large, the numbers sit under
+            // it at 70%. One line would have to shrink the whole title to
+            // about a third to fit "(mu = -6.86 ps; sigma = 23.7 ps)" across a
+            // pad three to a row.
+            const std::string base  = rows[di].name + " " + colnames[q];
+            const std::string unit  = axisUnit(px);
+            const auto        stats = [&](const std::string& t) {
+              return "#splitline{" + base + "}{#scale[0.7]{" + t + "}}";
+            };
 
             // A residual booked over [0, x] is a distance, not a signed
             // residual: it has no Gaussian core about zero, and fitting one
@@ -1423,17 +1435,29 @@ bool writePdfReport(const std::string& path, const std::string& table,
             if (it->second->GetXaxis()->GetXmin() >= 0.0) {
               double r68 = 0, pr68[1] = {0.68};
               px->GetQuantiles(1, &r68, pr68);
-              TLatex lq;
-              lq.SetNDC();
-              lq.SetTextFont(kFont);
-              lq.SetTextSize(0.068);
-              lq.SetTextAlign(33);
-              lq.DrawLatex(0.955, 0.825, ("R_{68} = " + fmtUnit(r68, true, axisUnit(px))).c_str());
+              px->SetTitle(stats("R_{68} = " + fmtUnit(r68, true, unit)).c_str());
+              px->Draw("hist");
+              TLine q68;
+              q68.SetLineColor(kBlue + 2);
+              q68.SetLineStyle(2);
+              q68.SetLineWidth(2);
+              q68.DrawLine(r68, 0, r68, px->GetMaximum());
               continue;
             }
 
             double fs = 0, ts = 0, mu = 0, ta = 0;
-            if (TF1* f = fitDoubleGaussian(px, fs, ts, mu, ta); f != nullptr) {
+            TF1*   fit = fitDoubleGaussian(px, fs, ts, mu, ta);
+            if (fit != nullptr)
+              // NOT a semicolon: TH1::SetTitle reads ';' as the axis-title
+              // separator, so "mu = ...; sigma = ..." set the x axis title to
+              // the sigma half and left the title with unbalanced braces.
+              px->SetTitle(stats("#mu = " + fmtUnit(mu, true, unit) + ",  #sigma = " +
+                                 fmtUnit(fs, true, unit))
+                               .c_str());
+            px->Draw("hist");
+            {
+              TF1* f = fit;
+              if (f != nullptr) {
               if (ts > 0.0 && ta > 0.0) {
                 auto* bg = new TF1((std::string(px->GetName()) + "_tl").c_str(), "gaus",
                                    px->GetXaxis()->GetXmin(), px->GetXaxis()->GetXmax());
@@ -1443,14 +1467,22 @@ bool writePdfReport(const std::string& path, const std::string& table,
                 bg->SetNpx(400);
                 bg->Draw("same");
               }
-              const std::string u = axisUnit(px);
-              TLatex lab;
-              lab.SetNDC();
-              lab.SetTextFont(kFont);
-              lab.SetTextSize(0.068);
-              lab.SetTextAlign(33);
-              lab.DrawLatex(0.955, 0.825, ("#mu = " + fmtUnit(mu, true, u)).c_str());
-              lab.DrawLatex(0.955, 0.715, ("#sigma = " + fmtUnit(fs, true, u)).c_str());
+              // mu solid, mu +- sigma dashed. Drawn to the frame top so they
+              // read as reference lines rather than as part of the data.
+              const double top = px->GetMaximum();
+              TLine ln;
+              ln.SetLineColor(kBlack);
+              ln.SetLineWidth(2);
+              ln.DrawLine(mu, 0, mu, top);
+              ln.SetLineColor(kBlue + 2);
+              ln.SetLineStyle(2);
+              for (int sg = -1; sg <= 1; sg += 2) {
+                const double xv = mu + sg * fs;
+                const TAxis* ax = px->GetXaxis();
+                if (xv > ax->GetBinLowEdge(ax->GetFirst()) && xv < ax->GetBinUpEdge(ax->GetLast()))
+                  ln.DrawLine(xv, 0, xv, top);
+              }
+              }
             }
           }
         }
