@@ -1381,7 +1381,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
         pt.SetTextSize(0.020);
         pt.DrawLatex(0.5, 0.932,
                      "filled = real candidates   dashed = fake, area-normalised   "
-                     "curve = fitted model");
+                     "curve = fitted model, grey = its wide component");
 
         const double x0 = 0.070, x1 = 0.980, yTop = 0.900, yBot = 0.030;
         const double pw = (x1 - x0) / ntot;
@@ -1543,35 +1543,6 @@ bool writePdfReport(const std::string& path, const std::string& table,
 
             const char model = q < models.size() ? models[q] : 'g';
 
-            // A segmented sensor with centroid readout gives a residual that is
-            // UNIFORM over the pitch, not Gaussian: a uniform distribution has
-            // excess kurtosis -1.2, and TOFEndcap dx/dy measure -1.16 and
-            // -1.24. Fitting a Gaussian core to a box is what made these
-            // panels look wrong. Quote the RMS, and the half-width sqrt(3)*RMS
-            // that a uniform implies -- for TOFEndcap that is 257 um, i.e. a
-            // ~0.5 mm pitch, which is the number a reader wants.
-            if (model == 'g' && px->GetKurtosis() < -0.4) {
-              const double rms = px->GetRMS();
-              const double mu  = px->GetMean();
-              px->SetTitle(stats("RMS = " + fmtUnit(rms, true, unit) + ",  flat #pm " +
-                                 fmtUnit(std::sqrt(3.0) * rms, true, unit))
-                               .c_str());
-              applyMax();
-              px->Draw("hist");
-              if (pf != nullptr)
-                pf->Draw("hist same");
-              const double top = px->GetMaximum();
-              TLine lb;
-              lb.SetLineColor(kBlack);
-              lb.SetLineWidth(1);
-              lb.DrawLine(mu, 0, mu, top);
-              lb.SetLineColor(kBlue + 2);
-              lb.SetLineStyle(2);
-              for (int sg = -1; sg <= 1; sg += 2)
-                lb.DrawLine(mu + sg * rms, 0, mu + sg * rms, top);
-              continue;
-            }
-
             if (model == 'c') {
               double cmu = 0, csig = 0, cal_a = 0, cal_n = 0;
               TF1*   cb = fitCrystalBall(px, cmu, csig, cal_a, cal_n);
@@ -1631,12 +1602,21 @@ bool writePdfReport(const std::string& path, const std::string& table,
               TF1* f = fit;
               if (f != nullptr || fs > 0.0) {
                 if (f != nullptr) {
+                  // The SUM, solid. Drawing only the wide component left a
+                // curve that visibly did not describe the histogram under it,
+                // which reads as a broken fit rather than as a background
+                // contour. The wide component stays, thin and grey, so the
+                // background shape is still there to be read off.
+                f->SetLineColor(kBlack);
+                f->SetLineWidth(2);
+                f->SetNpx(400);
+                f->Draw("same");
                 if (ts > 0.0 && ta > 0.0) {
                   auto* bg = new TF1((std::string(px->GetName()) + "_tl").c_str(), "gaus",
                                      px->GetXaxis()->GetXmin(), px->GetXaxis()->GetXmax());
                   bg->SetParameters(ta, mu, ts);
-                  bg->SetLineColor(kBlack);
-                  bg->SetLineWidth(2);
+                  bg->SetLineColor(static_cast<Color_t>(kGray + 2));
+                  bg->SetLineWidth(1);
                   bg->SetNpx(400);
                   bg->Draw("same");
                 }
