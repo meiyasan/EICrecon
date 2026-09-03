@@ -642,12 +642,16 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
       const auto mc  = a.getSim();
       if (!clu.isAvailable() || !mc.isAvailable())
         continue;
+      // As on the tracker side, an unlabelled truth particle is not unusable:
+      // it just cannot be attributed to a physics class. Keeping the `continue`
+      // here left the calorimeter aggregate row equal to the sum of the class
+      // rows, so it measured something different from the tracker one.
       const int cls = classIndexOfStatus(mc.getGeneratorStatus());
-      if (cls < 0)
-        continue;
       if (is_real) {
-        m_bench->res().fillCaloTime(sysi, cls, static_cast<double>(clu.getTime()) - t_ref);
-        m_bench->res().fillCaloTime(sysi, agg, static_cast<double>(clu.getTime()) - t_ref);
+        const double dt = static_cast<double>(clu.getTime()) - t_ref;
+        if (cls >= 0)
+          m_bench->res().fillCaloTime(sysi, cls, dt);
+        m_bench->res().fillCaloTime(sysi, agg, dt);
       }
 
       const auto mom = mc.getMomentum();
@@ -662,13 +666,21 @@ void EventBenchmark_processor::fillResolutions(const JEvent& event, double t_ref
       if (dphi < 0)
         dphi += 2 * M_PI;
       dphi -= M_PI;
-      m_bench->res().fillCaloAngle(sysi, cls, std::hypot(c_eta - mc_eta, dphi));
-      m_bench->res().fillCaloAngle(sysi, agg, std::hypot(c_eta - mc_eta, dphi));
+      const double dr_ang = std::hypot(c_eta - mc_eta, dphi);
+      if (cls >= 0)
+        m_bench->res().fillCaloAngle(sysi, cls, dr_ang);
+      m_bench->res().fillCaloAngle(sysi, agg, dr_ang);
 
       const double e_mc = std::hypot(pt, static_cast<double>(mom.z));
-      if (e_mc > 0.0)
-        m_bench->res().fillCaloEnergy(sysi, cls, (static_cast<double>(clu.getEnergy()) - e_mc) / e_mc);
-        m_bench->res().fillCaloEnergy(sysi, agg, (static_cast<double>(clu.getEnergy()) - e_mc) / e_mc);
+      // BRACES REQUIRED. Without them the aggregate fill ran unconditionally
+      // and divided by zero whenever a truth particle had no momentum, poking
+      // an inf into the very row the residual pages project.
+      if (e_mc > 0.0) {
+        const double de = (static_cast<double>(clu.getEnergy()) - e_mc) / e_mc;
+        if (cls >= 0)
+          m_bench->res().fillCaloEnergy(sysi, cls, de);
+        m_bench->res().fillCaloEnergy(sysi, agg, de);
+      }
     }
   }
 }

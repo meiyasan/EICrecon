@@ -1199,7 +1199,7 @@ bool writePdfReport(const std::string& path, const std::string& table,
     h.SetTextAlign(22);
     h.SetTextFont(kFontBold);
     h.SetTextSize(0.044);
-    h.DrawLatex(0.5, 0.930, "Where the time goes");
+    h.DrawLatex(0.5, 0.930, "Timing profiler");
     h.SetTextFont(kFont);
     h.SetTextSize(0.028);
     h.DrawLatex(0.5, 0.888, "per-factory self time -- callees subtracted -- from JANA's call graph");
@@ -1686,8 +1686,10 @@ bool writePdfReport(const std::string& path, const std::string& table,
     gStyle->SetTitleFontSize(saved_title_size);
   }
 
-  c.Clear();
-  c.Print((path + ")").c_str(), "pdf"); // close the document
+  // "]" closes the document WITHOUT emitting a page; ")" also prints the
+  // current canvas, which on a cleared canvas was one blank sheet at the end
+  // of every report.
+  c.Print((path + "]").c_str(), "pdf");
   gROOT->SetBatch(batch_before);
   return true;
 }

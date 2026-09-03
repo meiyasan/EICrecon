@@ -338,6 +338,35 @@ is written unless `-Phistsfile` is also given.
 | `eventbuilder:benchmark:frame_ns` | `2000` | frame length, for fakes/frame → Hz |
 | `eventbuilder:benchmark:calo_dr` | `0.05` | neutral truth-group merge radius |
 | `eventbuilder:benchmark:csv` | *(empty)* | write the final table as CSV |
+| `eventbuilder:benchmark:pdf` | *(empty)* | write the PDF report to this path |
+| `eventbuilder:benchmark:profile` | `0` | per-factory and per-class timing pages |
+
+`profile` is off by default because it needs JANA's `RECORD_CALL_STACK`, which
+slows reconstruction enough to distort the very `processing` row it sits next
+to (642 -> 890 ms/frame on the reference sample). Turn it on when the question
+is *which factory is slow*, not *how fast is the job*.
+
+## The residual pages
+
+One pad per detector and quantity, real candidates filled and fake candidates
+overlaid as a dashed outline. The two are **disjoint** samples of very
+different size -- fakes outnumber real candidates about two to one -- so the
+fake is scaled to the real's area over the visible window and only the
+*shapes* are comparable.
+
+The fit follows the shape rather than being assumed:
+
+| shape | test | reported |
+|---|---|---|
+| peaked, symmetric | default | double Gaussian; `mu`, `sigma` of the core |
+| flat-topped | excess kurtosis < -0.4 | `RMS`, and the half-width `sqrt(3)*RMS` a uniform implies |
+| one-sided tail (calorimeter t, E) | column model `c` | Crystal Ball |
+| positive definite (`dR`) | axis starts at 0 | 68% containment radius |
+
+The flat-top branch exists because a segmented sensor with centroid readout
+gives a residual **uniform over the pitch**, not Gaussian: a uniform has
+excess kurtosis exactly -1.2, and TOFEndcap `dx`/`dy` measure -1.16 and -1.24.
+Fitting a Gaussian core to a box reports a number that means nothing.
 
 ## Conventions
 
