@@ -158,6 +158,45 @@ bool coreSigma(TH1* h, double& sigma, double& err) {
 /// fitted TF1 with core/tail widths and the tail-only amplitude, so the caller
 /// can draw the TAIL alone and leave the core as visible excess above it.
 /// sigma_core <= sigma_tail by construction.
+/// Gaussian core with a power-law tail on the LOW side: the standard shape
+/// for a calorimeter response, where the tail comes from shower leakage and
+/// dead material and so only ever loses energy. Measured on EcalEndcapP the
+/// energy residual has skewness +3.3 and excess kurtosis +12, which no
+/// symmetric model describes.
+TF1* fitCrystalBall(TH1* h, double& mu, double& sigma, double& alpha, double& nn) {
+  if (h == nullptr || h->GetEntries() < 50)
+    return nullptr;
+  const double lo = h->GetXaxis()->GetBinLowEdge(h->GetXaxis()->GetFirst());
+  const double hi = h->GetXaxis()->GetBinUpEdge(h->GetXaxis()->GetLast());
+  if (!(hi > lo))
+    return nullptr;
+  auto* f = new TF1((std::string(h->GetName()) + "_cb").c_str(), "crystalball", lo, hi);
+  // Constant, Mean, Sigma, Alpha, N. Alpha is where the power law takes over,
+  // in sigmas; negative puts the tail on the low side.
+  f->SetParameters(h->GetMaximum(), h->GetBinCenter(h->GetMaximumBin()), 0.3 * h->GetRMS(), -1.0,
+                   3.0);
+  f->SetParLimits(0, 0.0, 10.0 * std::max(h->GetMaximum(), 1.0));
+  f->SetParLimits(2, 0.2 * h->GetBinWidth(1), hi - lo);
+  f->SetParLimits(3, -5.0, -0.2);
+  f->SetParLimits(4, 0.5, 20.0);
+  if (h->Fit(f, "QNR", "", lo, hi) != 0) {
+    delete f;
+    return nullptr;
+  }
+  mu    = f->GetParameter(1);
+  sigma = std::fabs(f->GetParameter(2));
+  alpha = f->GetParameter(3);
+  nn    = f->GetParameter(4);
+  // A mean outside the drawn window, or a width comparable to it, is the fit
+  // having run away rather than a measurement: EcalEndcapP came back with
+  // mu = 117 ns and sigma = 48 ns on a +-40 ns axis.
+  if (!(sigma > 0.0) || mu < lo || mu > hi || sigma > 0.5 * (hi - lo)) {
+    delete f;
+    return nullptr;
+  }
+  return f;
+}
+
 TF1* fitDoubleGaussian(TH1* h, double& core, double& tail, double& mu, double& tail_amp) {
   // 100 was too strict: a sparse panel then showed no fit at all, which
   // reads as "the fit failed" rather than "there are 63 entries".
@@ -1280,8 +1319,11 @@ bool writePdfReport(const std::string& path, const std::string& table,
     // Below this a panel is a few counts smeared over the whole gate: no fit is
     // meaningful and the bars do not even render at this pad size.
     constexpr double kMinEntries = 20;
+    // Per-column fit model. 'g' double Gaussian, 'c' Crystal Ball, 'q' 68%
+    // quantile. A column marked 'g' still falls back to a flat-top summary
+    // when the data says the distribution is a box -- see below.
     auto drawGrid = [&](const std::string& title, const std::vector<std::string>& colnames,
-                        const std::vector<Row>& all_rows) {
+                        const std::string& models, const std::vector<Row>& all_rows) {
       // Drop detectors with nothing drawable rather than spending a sixth of
       // the page on three "no data" boxes in a row.
       const auto binEntries = [&](const std::string& k, int ybin) {
@@ -1338,7 +1380,8 @@ bool writePdfReport(const std::string& path, const std::string& table,
         pt.SetTextFont(kFont);
         pt.SetTextSize(0.020);
         pt.DrawLatex(0.5, 0.932,
-                     "filled = real candidates   dashed = fake   curve = fitted tail component");
+                     "filled = real candidates   dashed = fake, area-normalised   "
+                     "curve = fitted model");
 
         const double x0 = 0.070, x1 = 0.980, yTop = 0.900, yBot = 0.030;
         const double pw = (x1 - x0) / ntot;
@@ -1445,6 +1488,16 @@ bool writePdfReport(const std::string& path, const std::string& table,
               const TAxis* a = px->GetXaxis();
               pf->GetXaxis()->SetRangeUser(a->GetBinLowEdge(a->GetFirst()),
                                            a->GetBinUpEdge(a->GetLast()));
+              // Scale the fake to the real's area over the visible window. The
+              // two are DISJOINT samples of very different size -- fakes
+              // outnumber real candidates about two to one, so on SiEndcap the
+              // fake curve stood higher than the real one and looked like a
+              // background exceeding its own signal. Only the SHAPES are
+              // comparable, so equalise the areas and say so on the page.
+              const int    f1 = a->GetFirst(), f2 = a->GetLast();
+              const double ir = px->Integral(f1, f2), ifk = pf->Integral(f1, f2);
+              if (ir > 0.0 && ifk > 0.0)
+                pf->Scale(ir / ifk);
             }
             // Scale the y axis only AFTER fitting. fitDoubleGaussian seeds its
             // amplitude from GetMaximum(), and GetMaximum() returns the USER
@@ -1485,6 +1538,66 @@ bool writePdfReport(const std::string& path, const std::string& table,
               q68.SetLineStyle(2);
               q68.SetLineWidth(1);
               q68.DrawLine(r68, 0, r68, px->GetMaximum());
+              continue;
+            }
+
+            const char model = q < models.size() ? models[q] : 'g';
+
+            // A segmented sensor with centroid readout gives a residual that is
+            // UNIFORM over the pitch, not Gaussian: a uniform distribution has
+            // excess kurtosis -1.2, and TOFEndcap dx/dy measure -1.16 and
+            // -1.24. Fitting a Gaussian core to a box is what made these
+            // panels look wrong. Quote the RMS, and the half-width sqrt(3)*RMS
+            // that a uniform implies -- for TOFEndcap that is 257 um, i.e. a
+            // ~0.5 mm pitch, which is the number a reader wants.
+            if (model == 'g' && px->GetKurtosis() < -0.4) {
+              const double rms = px->GetRMS();
+              const double mu  = px->GetMean();
+              px->SetTitle(stats("RMS = " + fmtUnit(rms, true, unit) + ",  flat #pm " +
+                                 fmtUnit(std::sqrt(3.0) * rms, true, unit))
+                               .c_str());
+              applyMax();
+              px->Draw("hist");
+              if (pf != nullptr)
+                pf->Draw("hist same");
+              const double top = px->GetMaximum();
+              TLine lb;
+              lb.SetLineColor(kBlack);
+              lb.SetLineWidth(1);
+              lb.DrawLine(mu, 0, mu, top);
+              lb.SetLineColor(kBlue + 2);
+              lb.SetLineStyle(2);
+              for (int sg = -1; sg <= 1; sg += 2)
+                lb.DrawLine(mu + sg * rms, 0, mu + sg * rms, top);
+              continue;
+            }
+
+            if (model == 'c') {
+              double cmu = 0, csig = 0, cal_a = 0, cal_n = 0;
+              TF1*   cb = fitCrystalBall(px, cmu, csig, cal_a, cal_n);
+              if (cb != nullptr)
+                px->SetTitle(stats("#mu = " + fmtUnit(cmu, true, unit) + ",  #sigma = " +
+                                   fmtUnit(csig, true, unit) + " (CB)")
+                                 .c_str());
+              applyMax();
+              px->Draw("hist");
+              if (pf != nullptr)
+                pf->Draw("hist same");
+              if (cb != nullptr) {
+                cb->SetLineColor(kBlack);
+                cb->SetLineWidth(2);
+                cb->SetNpx(400);
+                cb->Draw("same");
+                const double top = px->GetMaximum();
+                TLine lc;
+                lc.SetLineColor(kBlack);
+                lc.SetLineWidth(1);
+                lc.DrawLine(cmu, 0, cmu, top);
+                lc.SetLineColor(kBlue + 2);
+                lc.SetLineStyle(2);
+                for (int sg = -1; sg <= 1; sg += 2)
+                  lc.DrawLine(cmu + sg * csig, 0, cmu + sg * csig, top);
+              }
               continue;
             }
 
@@ -1560,12 +1673,16 @@ bool writePdfReport(const std::string& path, const std::string& table,
     std::vector<Row> trk;
     for (const auto& d : ResolutionHists::trackerNames())
       trk.push_back({d, {"time_" + d, "dx_" + d, "dy_" + d}, kBinReal, kBinFake});
-    drawGrid("Tracker residuals", {"#Deltat", "#Deltax", "#Deltay"}, trk);
+    drawGrid("Tracker residuals", {"#Deltat", "#Deltax", "#Deltay"}, "ggg", trk);
 
+    // Calorimeter time and energy both carry a one-sided tail -- leakage and
+    // dead material only ever lose energy, and late shower components only
+    // ever arrive late. dR stays a quantile: it is positive definite and has
+    // no Gaussian core about zero to fit.
     std::vector<Row> cal;
     for (const auto& d : ResolutionHists::caloNames())
       cal.push_back({d, {"time_" + d, "space_" + d, "energy_" + d}, kBinReal, kBinFake});
-    drawGrid("Calorimeter residuals", {"#Deltat", "#DeltaR", "#DeltaE/E"}, cal);
+    drawGrid("Calorimeter residuals", {"#Deltat", "#DeltaR", "#DeltaE/E"}, "cqc", cal);
     gStyle->SetTitleFontSize(saved_title_size);
   }
 
