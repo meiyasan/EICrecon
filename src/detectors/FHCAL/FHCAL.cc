@@ -445,7 +445,7 @@ void InitPlugin(JApplication* app) {
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
       "HcalEndcapPInsertClusterFrame",
       {"HcalEndcapPInsertClustersWithoutShapeFrame",
-       "HcalEndcapPInsertClusterAssociationsWithoutShapeFrame"},
+       "HcalEndcapPInsertClusterLinksWithoutShapeFrame"},
       {"HcalEndcapPInsertClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
        "HcalEndcapPInsertClusterLinkFrame",
@@ -535,7 +535,7 @@ void InitPlugin(JApplication* app) {
       app))->SetLevel(JEventLevel::Timeslice));
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
       "LFHCALClusterFrame",
-      {"LFHCALClustersWithoutShapeFrame", "LFHCALClusterAssociationsWithoutShapeFrame"},
+      {"LFHCALClustersWithoutShapeFrame", "LFHCALClusterLinksWithoutShapeFrame"},
       {"LFHCALClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
        "LFHCALClusterLinkFrame",

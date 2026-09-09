@@ -416,7 +416,7 @@ void InitPlugin(JApplication* app) {
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
       "EcalFarForwardZDCClusterFrame",
       {"EcalFarForwardZDCClustersWithoutShapeFrame",
-       "EcalFarForwardZDCClusterAssociationsWithoutShapeFrame"},
+       "EcalFarForwardZDCClusterLinksWithoutShapeFrame"},
       {"EcalFarForwardZDCClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
        "EcalFarForwardZDCClusterLinkFrame",
@@ -512,7 +512,7 @@ void InitPlugin(JApplication* app) {
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
       "HcalFarForwardZDCClusterFrame",
       {"HcalFarForwardZDCClustersWithoutShapeFrame",
-       "HcalFarForwardZDCClusterAssociationsWithoutShapeFrame"},
+       "HcalFarForwardZDCClusterLinksWithoutShapeFrame"},
       {"HcalFarForwardZDCClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
        "HcalFarForwardZDCClusterLinkFrame",

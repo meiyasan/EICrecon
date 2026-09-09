@@ -198,7 +198,7 @@ void InitPlugin(JApplication* app) {
       app))->SetLevel(JEventLevel::Timeslice));
 
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "B0ECalClusterFrame", {"B0ECalClustersWithoutShapeFrame", "B0ECalClusterAssociationsWithoutShapeFrame"},
+      "B0ECalClusterFrame", {"B0ECalClustersWithoutShapeFrame", "B0ECalClusterLinksWithoutShapeFrame"},
       {"B0ECalClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
        "B0ECalClusterLinkFrame",
@@ -225,7 +225,7 @@ void InitPlugin(JApplication* app) {
 
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
       "B0ECalTruthClusterFrame",
-      {"B0ECalTruthClustersWithoutShapeFrame", "B0ECalTruthClusterAssociationsWithoutShapeFrame"},
+      {"B0ECalTruthClustersWithoutShapeFrame", "B0ECalTruthClusterLinksWithoutShapeFrame"},
       {"B0ECalTruthClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
        "B0ECalTruthClusterLinkFrame",

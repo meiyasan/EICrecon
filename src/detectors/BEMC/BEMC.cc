@@ -697,7 +697,7 @@ void InitPlugin(JApplication* app) {
       ))->SetLevel(JEventLevel::Timeslice));
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
       "EcalBarrelScFiClusterFrame",
-      {"EcalBarrelScFiClustersWithoutShapeFrame", "EcalBarrelScFiClusterAssociationsWithoutShapeFrame"},
+      {"EcalBarrelScFiClustersWithoutShapeFrame", "EcalBarrelScFiClusterLinksWithoutShapeFrame"},
       {"EcalBarrelScFiClusterFrame",
        "EcalBarrelScFiClusterLinkFrame",
        "EcalBarrelScFiClusterAssociationFrame"},
@@ -784,7 +784,7 @@ void InitPlugin(JApplication* app) {
   app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
       "EcalBarrelImagingClusterFrame",
       {"EcalBarrelImagingClustersWithoutShapeFrame",
-       "EcalBarrelImagingClusterAssociationsWithoutShapeFrame"},
+       "EcalBarrelImagingClusterLinksWithoutShapeFrame"},
       {"EcalBarrelImagingClusterFrame",
        "EcalBarrelImagingClusterLinkFrame",
        "EcalBarrelImagingClusterAssociationFrame"},
