@@ -198,7 +198,7 @@ struct EventPrefilter_factory : public JOmniFactory<EventPrefilter_factory> {
 
   void ChangeRun(int32_t) {}
 
-  void Process(int64_t, uint64_t) {
+  void Process(int32_t, uint64_t) {
     const auto* cands = m_candidates_in();
     if (!cands) return;
 

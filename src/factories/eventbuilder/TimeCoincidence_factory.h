@@ -178,7 +178,7 @@ struct TimeCoincidence_factory : public JOmniFactory<TimeCoincidence_factory<Hit
   // EcalLumiSpec). Only indices 1 (EcalBarrel) and 4 (HcalBarrel) are barrel.
   static bool is_barrel_det(size_t s) { return s == 1 || s == 4; }
 
-  void Process(int64_t, uint64_t) {
+  void Process(int32_t, uint64_t) {
     const size_t n_det = m_hits_out().size();
     const float  n     = nsigma();
     // Tracker gate is plain symmetric (see the file header); late-side

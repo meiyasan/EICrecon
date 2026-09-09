@@ -591,7 +591,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
     }
   };
 
-  void Process(int64_t run_number, uint64_t event_number) {
+  void Process(int32_t run_number, uint64_t event_number) {
     // Topology grid dimensions (runtime; two staggered grids of ntheta x nphi).
     const int ntheta = std::max(1, m_theta_bins);
     const int nphi   = std::max(1, m_phi_bins);

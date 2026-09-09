@@ -23,7 +23,7 @@ namespace {
 
 /// Percentage cell. Renders "--" for an empty denominator rather than 0.0,
 /// so "nothing to find" never reads as "found nothing".
-std::string pct(std::uint64_t num, std::uint64_t den, int width = 7) {
+[[maybe_unused]] std::string pct(std::uint64_t num, std::uint64_t den, int width = 7) {
   std::ostringstream os;
   if (den == 0)
     os << std::setw(width) << "--";

@@ -37,7 +37,7 @@ private:
   ONNXRuntime_service() = default;
   void acquire_services(JServiceLocator*) override {}
 
-  JApplication*                                              m_app{nullptr};
+  [[maybe_unused]] JApplication*                             m_app{nullptr};
   Ort::Env                                                   m_env{ORT_LOGGING_LEVEL_WARNING, "eicrecon_onnx"};
   std::mutex                                                 m_mutex;
   std::unordered_map<std::string, std::shared_ptr<Ort::Session>> m_sessions;

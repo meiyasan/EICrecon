@@ -638,8 +638,8 @@ struct EventUnfolder : public JEventUnfolder {
 
     auto cand         = cands.at(child_idx);
     const double t0   = cand.getWeights(0); // t0, in ns
-    const double t0sigma  = cand.getWeights(1); // t0 sigma, in ns
-    const double phys = cand.getWeights(2); // flag: real-collision count; see EventBuilder_factory.h
+    [[maybe_unused]] const double t0sigma  = cand.getWeights(1); // t0 sigma, in ns
+    [[maybe_unused]] const double phys = cand.getWeights(2); // flag: real-collision count; see EventBuilder_factory.h
 
     // -- true-pile-up collision-instance separation ---------------------------
     // eventbuilder:trigger:store_coincident_list (on by default) appends
@@ -1657,6 +1657,7 @@ void InitPlugin(JApplication* app) {
           .m_tag                 = "align",
           .m_default_input_tags  = m_simtrackerhit_collection_names,
           .m_default_output_tags = m_simtrackerhit_collection_names_aligned,
+          .m_default_cfg         = {},
           .level                 = JEventLevel::Timeslice,
       },
       app));
@@ -1666,6 +1667,7 @@ void InitPlugin(JApplication* app) {
           .m_tag                 = "CalTimeAlignment",
           .m_default_input_tags  = m_simcalocluster_collection_names,
           .m_default_output_tags = m_simcalocluster_collection_names_aligned,
+          .m_default_cfg         = {},
           .level                 = JEventLevel::Timeslice,
       },
       app));
@@ -1714,6 +1716,7 @@ void InitPlugin(JApplication* app) {
           .m_tag                 = "trigger",
           .m_default_input_tags  = m_eventbuilder_input_tags,
           .m_default_output_tags = {"EventCandidates", "EventBuilderFrameInfo"},
+          .m_default_cfg         = {},
           .level                 = JEventLevel::Timeslice,
       },
       app));
@@ -1742,6 +1745,7 @@ void InitPlugin(JApplication* app) {
           .m_tag                 = "coincidence",
           .m_default_input_tags  = coinc_inputs,
           .m_default_output_tags = coinc_outputs,
+          .m_default_cfg         = {},
           .level                 = JEventLevel::Timeslice,
       },
       app));
@@ -1767,6 +1771,7 @@ void InitPlugin(JApplication* app) {
           .m_tag                 = "trkcoincidence",
           .m_default_input_tags  = trkcoinc_inputs,
           .m_default_output_tags = trkcoinc_outputs,
+          .m_default_cfg         = {},
           .level                 = JEventLevel::Timeslice,
       },
       app));
@@ -1797,6 +1802,7 @@ void InitPlugin(JApplication* app) {
           .m_tag                 = "calcoincidence",
           .m_default_input_tags  = calcoinc_inputs,
           .m_default_output_tags = calcoinc_outputs,
+          .m_default_cfg         = {},
           .level                 = JEventLevel::Timeslice,
       },
       app));
@@ -1834,6 +1840,7 @@ void InitPlugin(JApplication* app) {
           .m_default_input_tags  = prefilter_inputs,
           .m_default_output_tags = {"EventCandidatesFiltered", "PrefilterScores",
                                      "PrefilterLambdaK", "PrefilterSegLogits"},
+          .m_default_cfg         = {},
           .level                 = JEventLevel::Timeslice,
       },
       app));

@@ -46,8 +46,8 @@ constexpr int kFontBold = 32;
 constexpr int kMono     = 82;
 
 /// Draw pre-formatted lines top-down. Returns nothing; callers paginate.
-void drawLines(const std::vector<std::string>& lines, double x0, double y0, double dy,
-               double size, int font = kMono) {
+[[maybe_unused]] void drawLines(const std::vector<std::string>& lines, double x0, double y0,
+                                double dy, double size, int font = kMono) {
   TLatex t;
   t.SetNDC();
   t.SetTextFont(font);
@@ -262,7 +262,7 @@ TF1* fitDoubleGaussian(TH1* h, double& core, double& tail, double& mu, double& t
 /// background alone and drawing only that leaves the core standing above it
 /// as visible excess, which is what a resolution plot is actually asked.
 /// Returns nullptr when the sidebands carry too little to constrain a shape.
-TF1* fitBackground(TH1* h, double mu, double core_sigma) {
+[[maybe_unused]] TF1* fitBackground(TH1* h, double mu, double core_sigma) {
   if (h == nullptr || !(core_sigma > 0))
     return nullptr;
   // Mask +-3 sigma around the core; ROOT has no fit-range exclusion, so mask
@@ -605,7 +605,7 @@ TH1D* projection(TH2D* h, const std::string& suffix, int ybin_lo = 1,
   return px;
 }
 
-std::vector<std::string> split(const std::string& s) {
+[[maybe_unused]] std::vector<std::string> split(const std::string& s) {
   std::vector<std::string> out;
   std::istringstream is(s);
   std::string         line;
@@ -628,7 +628,7 @@ std::string envOr(const char* k, const char* fallback) {
 
 } // namespace
 
-bool writePdfReport(const std::string& path, const std::string& table,
+bool writePdfReport(const std::string& path, [[maybe_unused]] const std::string& table,
                     const std::map<std::string, TH2D*>& hists, const ReportContext& ctx) {
   const bool batch_before = gROOT->IsBatch();
   gROOT->SetBatch(kTRUE);
@@ -1380,7 +1380,6 @@ bool writePdfReport(const std::string& path, const std::string& table,
       // it needs.
       constexpr std::size_t kMaxRows = 4;
       const std::size_t     ncol     = colnames.size();
-      const std::size_t     blocks   = 1;
       const std::size_t     ntot     = ncol;
       for (std::size_t r0 = 0; r0 < rows.size(); r0 += kMaxRows) {
         const std::size_t nrow = std::min(kMaxRows, rows.size() - r0);

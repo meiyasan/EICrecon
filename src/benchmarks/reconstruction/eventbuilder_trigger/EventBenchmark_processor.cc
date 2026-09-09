@@ -12,6 +12,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <type_traits>
 
 #include <JANA/JApplication.h>
 #include <JANA/JEvent.h>
@@ -123,11 +124,28 @@ const std::vector<std::string>& EventBenchmark_processor::caloAssociationNames()
   return names;
 }
 
+namespace {
+/// JEventProcessor::EnableOrdering() does not exist in the older JANA2 that the
+/// eic-shell *-stable images still ship, so detect it rather than pinning a
+/// version: the plugin then keeps ordering everywhere the API is available and
+/// only loses it where there is no way to ask for it.
+///
+/// Losing it does not affect the totals -- those are order-free sums -- but the
+/// interim "after N frames" reports would then cover a different N frames at
+/// each thread count. See README.md.
+template <typename T, typename = void> struct has_enable_ordering : std::false_type {};
+template <typename T>
+struct has_enable_ordering<T, std::void_t<decltype(std::declval<T&>().EnableOrdering(true))>>
+    : std::true_type {};
+} // namespace
+
 EventBenchmark_processor::EventBenchmark_processor() {
   SetTypeName(NAME_OF_THIS);
   SetLevel(JEventLevel::PhysicsEvent);
   SetCallbackStyle(CallbackStyle::ExpertMode);
-  EnableOrdering(true);
+  if constexpr (has_enable_ordering<EventBenchmark_processor>::value) {
+    EnableOrdering(true);
+  }
 }
 
 void EventBenchmark_processor::Init() {

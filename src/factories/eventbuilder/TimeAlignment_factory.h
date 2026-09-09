@@ -203,7 +203,7 @@ struct TimeAlignment_factory
     return c;
   }
 
-  void Process(int64_t, uint64_t frame_nr) {
+  void Process(int32_t, uint64_t frame_nr) {
     const size_t n_out  = m_out().size();
     const size_t nf     = static_cast<size_t>(NFast);
     const size_t n_slow = (nf < n_out) ? (n_out - nf) : 0u;
