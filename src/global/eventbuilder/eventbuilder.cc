@@ -1500,8 +1500,31 @@ struct EventUnfolder : public JEventUnfolder {
   // Owned clones, not a subset: a subset output of a Timeslice-level
   // collection would only store a bare <name>_objIdx reference, since the
   // referenced frame-level collection is never written to the child tree.
-  // clone(true) keeps the relations (rawHit/simHit/from/to), which point at
-  // parent-frame collections that always outlive this child.
+  //
+  // clone(true) DELIBERATELY keeps the relations (rawHit/simHit/from/to)
+  // pointing at parent-frame collections. In memory the parent outlives the
+  // child, and on disk these refs are what makes the offline join work at
+  // all: both sides of it (link.from and rechit.rawHit) carry the SAME
+  // parent-frame index, so joining index-on-index is consistent even though
+  // neither resolves to an object. Do not "fix" this by clearing the refs —
+  // that would break the GNN per-hit truth join, which is exactly this
+  // index join.
+  //
+  // The invariant that keeps it SAFE is that the referenced collections
+  // (<det>RawHits, <det>SimHits) are NOT written to the child tree: podio
+  // then reports each leg as unavailable (ObjectID -1) rather than
+  // resolving it, which is what a full podio read of a child frame shows
+  // today (verified 2026-09-02 with podio-dump --detailed on output
+  // carrying RawHitLinks + SharedSimHits).
+  //
+  // It stops being safe the moment a SAME-NAMED collection is added to the
+  // child's podio:output_collections: a ref serializes as (name-hash, index)
+  // and would then silently resolve against the child's own, smaller,
+  // re-indexed collection — mis-pointing, or landing out of range and
+  // crashing podio the way the child MCParticles clones did before their
+  // parents/daughters were remapped (see the MCParticle loop above).
+  // If those collections ever need writing, re-point these relations at
+  // child-local clones first, the way the truth links below already do.
   template <typename InVec, typename OutVec, typename RawHitOf>
   void copyGatedByRawHit(const InVec& in, OutVec& out,
                          const std::vector<std::unordered_set<uint64_t>>& kept,
