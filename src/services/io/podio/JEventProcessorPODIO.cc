@@ -1,3 +1,4 @@
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "JEventProcessorPODIO.h"
 
 #include <JANA/JApplication.h>
@@ -122,13 +123,6 @@ JEventProcessorPODIO::JEventProcessorPODIO() {
 
       "TOFBarrelRawHitLinks",
 
-      // Eventbuilder final TOF names (EventUnfolder emits *RecHits/*RawHits for
-      // TOF just like every other detector; only these two pairs were missed
-      // when the whitelist was written against the pre-eventbuilder names above)
-      "TOFBarrelRecHits",
-      "TOFEndcapRecHits",
-      "TOFBarrelRawHits",
-      "TOFEndcapRawHits",
       "TOFBarrelRawHitAssociations",
       "TOFEndcapRawHitLinks",
       "TOFEndcapRawHitAssociations",
@@ -485,50 +479,6 @@ JEventProcessorPODIO::JEventProcessorPODIO() {
 
       // "triggerflag",
 
-      // Eventbuilder TimeAlign/TimeCoinc debug pass-through (see EventUnfolder
-      // in global/eventbuilder/eventbuilder.cc): full, ungated copies of the
-      // Timeslice-level intermediates, re-exported at PhysicsEvent level.
-      "TOFBarrelTimeAlignRecHits",
-      "TOFEndcapTimeAlignRecHits",
-      "MPGDBarrelTimeAlignRecHits",
-      "OuterMPGDBarrelTimeAlignRecHits",
-      "BackwardMPGDEndcapTimeAlignRecHits",
-      "ForwardMPGDEndcapTimeAlignRecHits",
-      "SiBarrelVertexTimeCoincRecHits",
-      "SiBarrelTrackerTimeCoincRecHits",
-      "SiEndcapTrackerTimeCoincRecHits",
-      "B0TrackerTimeCoincRecHits",
-      "B0ECalTimeAlignClusters",
-      "EcalBarrelTimeAlignClusters",
-      "EcalEndcapNTimeAlignClusters",
-      "EcalEndcapPTimeAlignClusters",
-
-      // Ungated slow-detector *TimeAlignRecHits (pre-coincidence-gate), for
-      // comparing against the gated *TimeCoincRecHits above.
-      "SiBarrelVertexTimeAlignRecHits",
-      "SiBarrelTrackerTimeAlignRecHits",
-      "SiEndcapTrackerTimeAlignRecHits",
-      "B0TrackerTimeAlignRecHits",
-
-      // Candidate lists (pre-/post-prefilter), debug pass-through.
-      "EventCandidates",
-      "EventCandidatesFiltered",
-
-      // Calo *RawHitAssociations, carried through by EventUnfolder. The
-      // matching tracker/calo *RawHitLinks are already in the main list
-      // above (upstream added them), so they are not repeated here.
-      "B0ECalRawHitAssociations",
-      "EcalBarrelScFiRawHitAssociations",
-      "HcalBarrelRawHitAssociations",
-      "EcalEndcapNRawHitAssociations",
-      "HcalEndcapNRawHitAssociations",
-      "EcalEndcapPRawHitAssociations",
-      "EcalEndcapPInsertRawHitAssociations",
-      "HcalEndcapPInsertRawHitAssociations",
-      "LFHCALRawHitAssociations",
-      "EcalLumiSpecRawHitAssociations",
-      "EcalFarForwardZDCRawHitAssociations",
-      "HcalFarForwardZDCRawHitAssociations",
       "EcalEndcapPTrackClusterMatches",
       "LFHCALTrackClusterMatches",
       "HcalEndcapPInsertClusterMatches",
@@ -580,6 +530,73 @@ JEventProcessorPODIO::JEventProcessorPODIO() {
       "EndcapPNeutralCandidateParticlesAlpha",
 
   };
+
+  // Collections that only exist -- or only carry meaning -- when the EventBuilder
+  // workflow is on. Requested unconditionally, an ordinary PhysicsEvent job also
+  // writes the calo *RawHitAssociations below, and their simHit legs reference
+  // sim-hit collections that are not part of the output; that is precisely what
+  // src/scripts/verify_for_dangling_references.py reports as a dangling
+  // collectionID. Upstream does not write them, so match that when the workflow
+  // is off. See extensions/jana/EventBuilderEnabled.h.
+  if (eicrecon::eventbuilderEnabled(japp)) {
+    for (const auto* collection : {
+          // Eventbuilder final TOF names (EventUnfolder emits *RecHits/*RawHits for
+          // TOF just like every other detector; only these two pairs were missed
+          // when the whitelist was written against the pre-eventbuilder names above)
+          "TOFBarrelRecHits",
+          "TOFEndcapRecHits",
+          "TOFBarrelRawHits",
+          "TOFEndcapRawHits",
+
+          // Eventbuilder TimeAlign/TimeCoinc debug pass-through (see EventUnfolder
+          // in global/eventbuilder/eventbuilder.cc): full, ungated copies of the
+          // Timeslice-level intermediates, re-exported at PhysicsEvent level.
+          "TOFBarrelTimeAlignRecHits",
+          "TOFEndcapTimeAlignRecHits",
+          "MPGDBarrelTimeAlignRecHits",
+          "OuterMPGDBarrelTimeAlignRecHits",
+          "BackwardMPGDEndcapTimeAlignRecHits",
+          "ForwardMPGDEndcapTimeAlignRecHits",
+          "SiBarrelVertexTimeCoincRecHits",
+          "SiBarrelTrackerTimeCoincRecHits",
+          "SiEndcapTrackerTimeCoincRecHits",
+          "B0TrackerTimeCoincRecHits",
+          "B0ECalTimeAlignClusters",
+          "EcalBarrelTimeAlignClusters",
+          "EcalEndcapNTimeAlignClusters",
+          "EcalEndcapPTimeAlignClusters",
+
+          // Ungated slow-detector *TimeAlignRecHits (pre-coincidence-gate), for
+          // comparing against the gated *TimeCoincRecHits above.
+          "SiBarrelVertexTimeAlignRecHits",
+          "SiBarrelTrackerTimeAlignRecHits",
+          "SiEndcapTrackerTimeAlignRecHits",
+          "B0TrackerTimeAlignRecHits",
+
+          // Candidate lists (pre-/post-prefilter), debug pass-through.
+          "EventCandidates",
+          "EventCandidatesFiltered",
+
+          // Calo *RawHitAssociations, carried through by EventUnfolder. The
+          // matching tracker/calo *RawHitLinks are already in the main list
+          // above (upstream added them), so they are not repeated here.
+          "B0ECalRawHitAssociations",
+          "EcalBarrelScFiRawHitAssociations",
+          "HcalBarrelRawHitAssociations",
+          "EcalEndcapNRawHitAssociations",
+          "HcalEndcapNRawHitAssociations",
+          "EcalEndcapPRawHitAssociations",
+          "EcalEndcapPInsertRawHitAssociations",
+          "HcalEndcapPInsertRawHitAssociations",
+          "LFHCALRawHitAssociations",
+          "EcalLumiSpecRawHitAssociations",
+          "EcalFarForwardZDCRawHitAssociations",
+          "HcalFarForwardZDCRawHitAssociations",
+         }) {
+      output_collections.emplace_back(collection);
+    }
+  }
+
   std::vector<std::string> output_exclude_collections; // need to get as vector, then convert to set
   japp->SetDefaultParameter(
       "podio:output_collections", output_collections,
