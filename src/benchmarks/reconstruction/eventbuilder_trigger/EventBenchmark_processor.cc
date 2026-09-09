@@ -137,15 +137,23 @@ template <typename T, typename = void> struct has_enable_ordering : std::false_t
 template <typename T>
 struct has_enable_ordering<T, std::void_t<decltype(std::declval<T&>().EnableOrdering(true))>>
     : std::true_type {};
+
+/// The call has to sit in a template: `if constexpr` only leaves the discarded
+/// branch uninstantiated inside a template, so writing it straight into the
+/// constructor would still name-lookup EnableOrdering and fail to compile on the
+/// JANA2 that lacks it -- which is exactly the case being guarded against.
+template <typename T> void enableOrderingIfAvailable([[maybe_unused]] T* self) {
+  if constexpr (has_enable_ordering<T>::value) {
+    self->EnableOrdering(true);
+  }
+}
 } // namespace
 
 EventBenchmark_processor::EventBenchmark_processor() {
   SetTypeName(NAME_OF_THIS);
   SetLevel(JEventLevel::PhysicsEvent);
   SetCallbackStyle(CallbackStyle::ExpertMode);
-  if constexpr (has_enable_ordering<EventBenchmark_processor>::value) {
-    EnableOrdering(true);
-  }
+  enableOrderingIfAvailable(this);
 }
 
 void EventBenchmark_processor::Init() {
