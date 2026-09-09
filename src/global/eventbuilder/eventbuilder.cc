@@ -35,6 +35,7 @@
 #include <edm4eic/Measurement2DCollection.h>
 #include <edm4eic/MCRecoClusterParticleAssociationCollection.h>
 
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 #include "factories/eventbuilder/TimeAlignment_factory.h"
 #include "factories/eventbuilder/TimeCoincidence_factory.h"
@@ -1646,6 +1647,17 @@ void InitPlugin(JApplication* app) {
   // "EcalLumiSpecImagingClusterFrame"
 
   InitJANAPlugin(app);
+
+  // Everything below is Timeslice-level: the factories that build physics
+  // events out of time-frames, and the services they need. None of it has any
+  // meaning when the EventBuilder workflow is off -- and registering it anyway
+  // makes JANA build a Timeslice topology for ordinary PhysicsEvent jobs, which
+  // then die on the non-optional Timeslice "MCParticles" input above. Bail out
+  // and leave the plugin registered but empty. See
+  // extensions/jana/EventBuilderEnabled.h.
+  if (!eicrecon::eventbuilderEnabled(app)) {
+    return;
+  }
 
   // Process-wide services: a thread-safe, frame-numbered cross-frame Si/B0
   // hit buffer, and the shared ONNX runtime used by the prefilter.
