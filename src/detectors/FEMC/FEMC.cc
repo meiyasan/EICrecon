@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "algorithms/calorimetry/CalorimeterHitDigiConfig.h"
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 #include "factories/calorimetry/CalorimeterClusterRecoCoG_factory.h"
 #include "factories/calorimetry/CalorimeterClusterShape_factory.h"
@@ -271,127 +272,129 @@ void InitPlugin(JApplication* app) {
   // and it omits TrackClusterMergeSplitter (requires ACTS CalorimeterTrackProjections,
   // only available at PhysicsEvent level). Add ScFi support here if/when that geometry
   // is used at Timeslice level.
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "EcalEndcapPRawHitFrame", {"EventHeader", "EcalEndcapPHits"},
-      {"EcalEndcapPRawHitFrame",
+  if (eicrecon::eventbuilderEnabled(app)) {
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+        "EcalEndcapPRawHitFrame", {"EventHeader", "EcalEndcapPHits"},
+        {"EcalEndcapPRawHitFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalEndcapPRawHitLinkFrame",
+         "EcalEndcapPRawHitLinkFrame",
 #endif
-       "EcalEndcapPRawHitAssociationFrame"},
-      {
-          .eRes                      = {0.11333 * sqrt(dd4hep::GeV), 0.03, 0.0 * dd4hep::GeV},
-          .tRes                      = 0.0,
-          .threshold                 = 0.0,
-          .readoutType               = "sipm",
-          .lightYield                = EcalEndcapP_nPhotonPerGeV / EcalEndcapP_PhotonCollectionEff,
-          .photonDetectionEfficiency = EcalEndcapP_PhotonCollectionEff,
-          .numEffectiveSipmPixels    = EcalEndcapP_totalPixel,
-          .capADC                    = EcalEndcapP_capADC,
-          .capTime                   = 100,
-          .dyRangeADC                = EcalEndcapP_dyRangeADC,
-          .pedMeanADC                = EcalEndcapP_pedMeanADC,
-          .pedSigmaADC               = EcalEndcapP_pedSigmaADC,
-          .resolutionTDC             = EcalEndcapP_resolutionTDC,
-          .corrMeanScale             = "1.0",
-          .readout                   = "EcalEndcapPHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "EcalEndcapPRecHitFrame", {"EcalEndcapPRawHitFrame"}, {"EcalEndcapPRecHitFrame"},
-      {
-          .capADC          = EcalEndcapP_capADC,
-          .dyRangeADC      = EcalEndcapP_dyRangeADC,
-          .pedMeanADC      = EcalEndcapP_pedMeanADC,
-          .pedSigmaADC     = EcalEndcapP_pedSigmaADC,
-          .resolutionTDC   = EcalEndcapP_resolutionTDC,
-          .timeErrorScale = EcalEndcapP_timeErrorScale,
-          .timeErrorOffset = EcalEndcapP_timeErrorOffset,
-          // Same 4-sigma threshold as EcalEndcapPRecHits above -- see that
-          // block's comment for why the flat thresholdValue=3 this replaces
-          // let noise-floor hits through.
-          .thresholdFactor = 4.0,
-          .thresholdValue = 0.0,
-          .sampFrac        = "1.00",
-          .readout         = "EcalEndcapPHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
-      "EcalEndcapPTruthProtoClusterFrame", {"EcalEndcapPRecHitFrame", "EcalEndcapPHits"},
-      {"EcalEndcapPTruthProtoClusterFrame"},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
-      "EcalEndcapPIslandProtoClusterFrame", {"EcalEndcapPRecHitFrame"},
-      {"EcalEndcapPIslandProtoClusterFrame"},
-      {
-          .adjacencyMatrix{},
-          .peakNeighbourhoodMatrix{},
-          .readout{},
-          .sectorDist                    = 5.0 * dd4hep::cm,
-          .localDistXY{},
-          .localDistXZ{},
-          .localDistYZ{},
-          .globalDistRPhi{},
-          .globalDistEtaPhi{},
-          .dimScaledLocalDistXY          = {1.5, 1.5},
-          .splitCluster                  = false,
-          .minClusterHitEdep             = 0.0 * dd4hep::MeV,
-          .minClusterCenterEdep          = 60.0 * dd4hep::MeV,
-          .transverseEnergyProfileMetric = "dimScaledLocalDistXY",
-          .transverseEnergyProfileScale  = 1.,
-          .transverseEnergyProfileScaleUnits{},
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+         "EcalEndcapPRawHitAssociationFrame"},
+        {
+            .eRes                      = {0.11333 * sqrt(dd4hep::GeV), 0.03, 0.0 * dd4hep::GeV},
+            .tRes                      = 0.0,
+            .threshold                 = 0.0,
+            .readoutType               = "sipm",
+            .lightYield                = EcalEndcapP_nPhotonPerGeV / EcalEndcapP_PhotonCollectionEff,
+            .photonDetectionEfficiency = EcalEndcapP_PhotonCollectionEff,
+            .numEffectiveSipmPixels    = EcalEndcapP_totalPixel,
+            .capADC                    = EcalEndcapP_capADC,
+            .capTime                   = 100,
+            .dyRangeADC                = EcalEndcapP_dyRangeADC,
+            .pedMeanADC                = EcalEndcapP_pedMeanADC,
+            .pedSigmaADC               = EcalEndcapP_pedSigmaADC,
+            .resolutionTDC             = EcalEndcapP_resolutionTDC,
+            .corrMeanScale             = "1.0",
+            .readout                   = "EcalEndcapPHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+        "EcalEndcapPRecHitFrame", {"EcalEndcapPRawHitFrame"}, {"EcalEndcapPRecHitFrame"},
+        {
+            .capADC          = EcalEndcapP_capADC,
+            .dyRangeADC      = EcalEndcapP_dyRangeADC,
+            .pedMeanADC      = EcalEndcapP_pedMeanADC,
+            .pedSigmaADC     = EcalEndcapP_pedSigmaADC,
+            .resolutionTDC   = EcalEndcapP_resolutionTDC,
+            .timeErrorScale = EcalEndcapP_timeErrorScale,
+            .timeErrorOffset = EcalEndcapP_timeErrorOffset,
+            // Same 4-sigma threshold as EcalEndcapPRecHits above -- see that
+            // block's comment for why the flat thresholdValue=3 this replaces
+            // let noise-floor hits through.
+            .thresholdFactor = 4.0,
+            .thresholdValue = 0.0,
+            .sampFrac        = "1.00",
+            .readout         = "EcalEndcapPHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
+        "EcalEndcapPTruthProtoClusterFrame", {"EcalEndcapPRecHitFrame", "EcalEndcapPHits"},
+        {"EcalEndcapPTruthProtoClusterFrame"},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+        "EcalEndcapPIslandProtoClusterFrame", {"EcalEndcapPRecHitFrame"},
+        {"EcalEndcapPIslandProtoClusterFrame"},
+        {
+            .adjacencyMatrix{},
+            .peakNeighbourhoodMatrix{},
+            .readout{},
+            .sectorDist                    = 5.0 * dd4hep::cm,
+            .localDistXY{},
+            .localDistXZ{},
+            .localDistYZ{},
+            .globalDistRPhi{},
+            .globalDistEtaPhi{},
+            .dimScaledLocalDistXY          = {1.5, 1.5},
+            .splitCluster                  = false,
+            .minClusterHitEdep             = 0.0 * dd4hep::MeV,
+            .minClusterCenterEdep          = 60.0 * dd4hep::MeV,
+            .transverseEnergyProfileMetric = "dimScaledLocalDistXY",
+            .transverseEnergyProfileScale  = 1.,
+            .transverseEnergyProfileScaleUnits{},
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "EcalEndcapPTruthClustersWithoutShapeFrame",
-      {
-          "EcalEndcapPTruthProtoClusterFrame",
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+        "EcalEndcapPTruthClustersWithoutShapeFrame",
+        {
+            "EcalEndcapPTruthProtoClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "EcalEndcapPRawHitLinkFrame",
+            "EcalEndcapPRawHitLinkFrame",
 #endif
-          "EcalEndcapPRawHitAssociationFrame"
-      },
-      {"EcalEndcapPTruthClustersWithoutShapeFrame",
+            "EcalEndcapPRawHitAssociationFrame"
+        },
+        {"EcalEndcapPTruthClustersWithoutShapeFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalEndcapPTruthClusterLinksWithoutShapeFrame",
+         "EcalEndcapPTruthClusterLinksWithoutShapeFrame",
 #endif
-       "EcalEndcapPTruthClusterAssociationsWithoutShapeFrame"},
-      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = true},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalEndcapPTruthClusterFrame",
-      {"EcalEndcapPTruthClustersWithoutShapeFrame", "EcalEndcapPTruthClusterLinksWithoutShapeFrame"},
-      {"EcalEndcapPTruthClusterFrame",
+         "EcalEndcapPTruthClusterAssociationsWithoutShapeFrame"},
+        {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = true},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+        "EcalEndcapPTruthClusterFrame",
+        {"EcalEndcapPTruthClustersWithoutShapeFrame", "EcalEndcapPTruthClusterLinksWithoutShapeFrame"},
+        {"EcalEndcapPTruthClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalEndcapPTruthClusterLinkFrame",
+         "EcalEndcapPTruthClusterLinkFrame",
 #endif
-       "EcalEndcapPTruthClusterAssociationFrame"},
-      {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
+         "EcalEndcapPTruthClusterAssociationFrame"},
+        {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "EcalEndcapPClustersWithoutShapeFrame",
-      {
-          "EcalEndcapPIslandProtoClusterFrame",
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+        "EcalEndcapPClustersWithoutShapeFrame",
+        {
+            "EcalEndcapPIslandProtoClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "EcalEndcapPRawHitLinkFrame",
+            "EcalEndcapPRawHitLinkFrame",
 #endif
-          "EcalEndcapPRawHitAssociationFrame"
-      },
-      {"EcalEndcapPClustersWithoutShapeFrame",
+            "EcalEndcapPRawHitAssociationFrame"
+        },
+        {"EcalEndcapPClustersWithoutShapeFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalEndcapPClusterLinksWithoutShapeFrame",
+         "EcalEndcapPClusterLinksWithoutShapeFrame",
 #endif
-       "EcalEndcapPClusterAssociationsWithoutShapeFrame"},
-      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 3.6, .enableEtaBounds = false},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalEndcapPClusterFrame",
-      {"EcalEndcapPClustersWithoutShapeFrame", "EcalEndcapPClusterLinksWithoutShapeFrame"},
-      {"EcalEndcapPClusterFrame",
+         "EcalEndcapPClusterAssociationsWithoutShapeFrame"},
+        {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 3.6, .enableEtaBounds = false},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+        "EcalEndcapPClusterFrame",
+        {"EcalEndcapPClustersWithoutShapeFrame", "EcalEndcapPClusterLinksWithoutShapeFrame"},
+        {"EcalEndcapPClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalEndcapPClusterLinkFrame",
+         "EcalEndcapPClusterLinkFrame",
 #endif
-       "EcalEndcapPClusterAssociationFrame"},
-      {.energyWeight = "log", .logWeightBase = 3.6}, app))->SetLevel(JEventLevel::Timeslice));
+         "EcalEndcapPClusterAssociationFrame"},
+        {.energyWeight = "log", .logWeightBase = 3.6}, app))->SetLevel(JEventLevel::Timeslice));
+  }
 }
 }

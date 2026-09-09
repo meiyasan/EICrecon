@@ -13,6 +13,7 @@
 
 // algorithm configurations
 #include "algorithms/digi/PhotoMultiplierHitDigiConfig.h"
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 // factories
 #include "factories/digi/PhotoMultiplierHitDigi_factory.h"
@@ -56,11 +57,13 @@ void InitPlugin(JApplication* app) {
   // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
   // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep in
   // sync with the chain above.
-  app->Add((new JOmniFactoryGeneratorT<PhotoMultiplierHitDigi_factory>(
-      "RICHEndcapNRawHitFrame", {"EventHeader", "PFRICHHits"},
-      {"RICHEndcapNRawHitFrame",
-       "RICHEndcapNRawHitsLinkFrame",
-       "RICHEndcapNRawHitsAssociationFrame"},
-      digi_cfg, app))->SetLevel(JEventLevel::Timeslice));
+  if (eicrecon::eventbuilderEnabled(app)) {
+    app->Add((new JOmniFactoryGeneratorT<PhotoMultiplierHitDigi_factory>(
+        "RICHEndcapNRawHitFrame", {"EventHeader", "PFRICHHits"},
+        {"RICHEndcapNRawHitFrame",
+         "RICHEndcapNRawHitsLinkFrame",
+         "RICHEndcapNRawHitsAssociationFrame"},
+        digi_cfg, app))->SetLevel(JEventLevel::Timeslice));
+  }
 }
 }

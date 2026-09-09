@@ -9,6 +9,7 @@
 #include <variant>
 #include <vector>
 
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 #include "factories/calorimetry/CalorimeterClusterRecoCoG_factory.h"
 #include "factories/calorimetry/CalorimeterClusterShape_factory.h"
@@ -126,119 +127,121 @@ void InitPlugin(JApplication* app) {
   // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
   // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep
   // in sync with the chain above.
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "EcalLumiSpecRawHitFrame", {"EventHeader", "EcalLumiSpecHits"},
-      {"EcalLumiSpecRawHitFrame",
+  if (eicrecon::eventbuilderEnabled(app)) {
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+        "EcalLumiSpecRawHitFrame", {"EventHeader", "EcalLumiSpecHits"},
+        {"EcalLumiSpecRawHitFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecRawHitLinkFrame",
+         "EcalLumiSpecRawHitLinkFrame",
 #endif
-       "EcalLumiSpecRawHitAssociationFrame"},
-      {
-          .eRes          = {0.0 * sqrt(dd4hep::GeV), 0.02, 0.0 * dd4hep::GeV}, // flat 2%
-          .tRes          = 0.0 * dd4hep::ns,
-          .capADC        = 16384,
-          .dyRangeADC    = 20 * dd4hep::GeV,
-          .pedMeanADC    = 100,
-          .pedSigmaADC   = 1,
-          .resolutionTDC = 10 * dd4hep::picosecond,
-          .corrMeanScale = "1.0",
-          .readout       = "EcalLumiSpecHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "EcalLumiSpecRecHitFrame", {"EcalLumiSpecRawHitFrame"}, {"EcalLumiSpecRecHitFrame"},
-      {
-          .capADC          = 16384,
-          .dyRangeADC      = 20. * dd4hep::GeV,
-          .pedMeanADC      = 100,
-          .pedSigmaADC     = 1,
-          .resolutionTDC   = 10 * dd4hep::picosecond,
-          .thresholdFactor = 0.0,
-          .thresholdValue  = 2.0,
-          .sampFrac        = "1.0",
-          .readout         = "EcalLumiSpecHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
-      "EcalLumiSpecTruthProtoClusterFrame", {"EcalLumiSpecRecHitFrame", "EcalLumiSpecHits"},
-      {"EcalLumiSpecTruthProtoClusterFrame"},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
-      "EcalLumiSpecIslandProtoClusterFrame", {"EcalLumiSpecRecHitFrame"},
-      {"EcalLumiSpecIslandProtoClusterFrame"},
-      {
-          .adjacencyMatrix =
-              "(sector_1 == sector_2) && ((abs(floor(module_1 / 10) - floor(module_2 / 10)) + "
-              "abs(fmod(module_1, 10) - fmod(module_2, 10))) == 1)",
-          .peakNeighbourhoodMatrix{},
-          .readout    = "EcalLumiSpecHits",
-          .sectorDist = 0.0 * dd4hep::cm,
-          .localDistXY{},
-          .localDistXZ{},
-          .localDistYZ{},
-          .globalDistRPhi{},
-          .globalDistEtaPhi{},
-          .dimScaledLocalDistXY{},
-          .splitCluster                  = true,
-          .minClusterHitEdep             = 1.0 * dd4hep::MeV,
-          .minClusterCenterEdep          = 30.0 * dd4hep::MeV,
-          .transverseEnergyProfileMetric = "localDistXY",
-          .transverseEnergyProfileScale  = 10. * dd4hep::mm,
-          .transverseEnergyProfileScaleUnits{},
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+         "EcalLumiSpecRawHitAssociationFrame"},
+        {
+            .eRes          = {0.0 * sqrt(dd4hep::GeV), 0.02, 0.0 * dd4hep::GeV}, // flat 2%
+            .tRes          = 0.0 * dd4hep::ns,
+            .capADC        = 16384,
+            .dyRangeADC    = 20 * dd4hep::GeV,
+            .pedMeanADC    = 100,
+            .pedSigmaADC   = 1,
+            .resolutionTDC = 10 * dd4hep::picosecond,
+            .corrMeanScale = "1.0",
+            .readout       = "EcalLumiSpecHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+        "EcalLumiSpecRecHitFrame", {"EcalLumiSpecRawHitFrame"}, {"EcalLumiSpecRecHitFrame"},
+        {
+            .capADC          = 16384,
+            .dyRangeADC      = 20. * dd4hep::GeV,
+            .pedMeanADC      = 100,
+            .pedSigmaADC     = 1,
+            .resolutionTDC   = 10 * dd4hep::picosecond,
+            .thresholdFactor = 0.0,
+            .thresholdValue  = 2.0,
+            .sampFrac        = "1.0",
+            .readout         = "EcalLumiSpecHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
+        "EcalLumiSpecTruthProtoClusterFrame", {"EcalLumiSpecRecHitFrame", "EcalLumiSpecHits"},
+        {"EcalLumiSpecTruthProtoClusterFrame"},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+        "EcalLumiSpecIslandProtoClusterFrame", {"EcalLumiSpecRecHitFrame"},
+        {"EcalLumiSpecIslandProtoClusterFrame"},
+        {
+            .adjacencyMatrix =
+                "(sector_1 == sector_2) && ((abs(floor(module_1 / 10) - floor(module_2 / 10)) + "
+                "abs(fmod(module_1, 10) - fmod(module_2, 10))) == 1)",
+            .peakNeighbourhoodMatrix{},
+            .readout    = "EcalLumiSpecHits",
+            .sectorDist = 0.0 * dd4hep::cm,
+            .localDistXY{},
+            .localDistXZ{},
+            .localDistYZ{},
+            .globalDistRPhi{},
+            .globalDistEtaPhi{},
+            .dimScaledLocalDistXY{},
+            .splitCluster                  = true,
+            .minClusterHitEdep             = 1.0 * dd4hep::MeV,
+            .minClusterCenterEdep          = 30.0 * dd4hep::MeV,
+            .transverseEnergyProfileMetric = "localDistXY",
+            .transverseEnergyProfileScale  = 10. * dd4hep::mm,
+            .transverseEnergyProfileScaleUnits{},
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "EcalLumiSpecClustersWithoutShapeFrame",
-      {
-          "EcalLumiSpecIslandProtoClusterFrame",
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+        "EcalLumiSpecClustersWithoutShapeFrame",
+        {
+            "EcalLumiSpecIslandProtoClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "EcalLumiSpecRawHitLinkFrame",
+            "EcalLumiSpecRawHitLinkFrame",
 #endif
-          "EcalLumiSpecRawHitAssociationFrame"
-      },
-      {"EcalLumiSpecClustersWithoutShapeFrame",
+            "EcalLumiSpecRawHitAssociationFrame"
+        },
+        {"EcalLumiSpecClustersWithoutShapeFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecClusterLinksWithoutShapeFrame",
+         "EcalLumiSpecClusterLinksWithoutShapeFrame",
 #endif
-       "EcalLumiSpecClusterAssociationsWithoutShapeFrame"},
-      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 3.6, .enableEtaBounds = false},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalLumiSpecClusterFrame",
-      {"EcalLumiSpecClustersWithoutShapeFrame", "EcalLumiSpecClusterLinksWithoutShapeFrame"},
-      {"EcalLumiSpecClusterFrame",
+         "EcalLumiSpecClusterAssociationsWithoutShapeFrame"},
+        {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 3.6, .enableEtaBounds = false},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+        "EcalLumiSpecClusterFrame",
+        {"EcalLumiSpecClustersWithoutShapeFrame", "EcalLumiSpecClusterLinksWithoutShapeFrame"},
+        {"EcalLumiSpecClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecClusterLinkFrame",
+         "EcalLumiSpecClusterLinkFrame",
 #endif
-       "EcalLumiSpecClusterAssociationFrame"},
-      {.energyWeight = "log", .logWeightBase = 3.6}, app))->SetLevel(JEventLevel::Timeslice));
+         "EcalLumiSpecClusterAssociationFrame"},
+        {.energyWeight = "log", .logWeightBase = 3.6}, app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "EcalLumiSpecTruthClustersWithoutShapeFrame",
-      {
-          "EcalLumiSpecTruthProtoClusterFrame",
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+        "EcalLumiSpecTruthClustersWithoutShapeFrame",
+        {
+            "EcalLumiSpecTruthProtoClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "EcalLumiSpecRawHitLinkFrame",
+            "EcalLumiSpecRawHitLinkFrame",
 #endif
-          "EcalLumiSpecRawHitAssociationFrame"
-      },
-      {"EcalLumiSpecTruthClustersWithoutShapeFrame",
+            "EcalLumiSpecRawHitAssociationFrame"
+        },
+        {"EcalLumiSpecTruthClustersWithoutShapeFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecTruthClusterLinksWithoutShapeFrame",
+         "EcalLumiSpecTruthClusterLinksWithoutShapeFrame",
 #endif
-       "EcalLumiSpecTruthClusterAssociationsWithoutShapeFrame"},
-      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 4.6, .enableEtaBounds = false},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "EcalLumiSpecTruthClusterFrame",
-      {"EcalLumiSpecTruthClustersWithoutShapeFrame",
-       "EcalLumiSpecTruthClusterLinksWithoutShapeFrame"},
-      {"EcalLumiSpecTruthClusterFrame",
+         "EcalLumiSpecTruthClusterAssociationsWithoutShapeFrame"},
+        {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 4.6, .enableEtaBounds = false},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+        "EcalLumiSpecTruthClusterFrame",
+        {"EcalLumiSpecTruthClustersWithoutShapeFrame",
+         "EcalLumiSpecTruthClusterLinksWithoutShapeFrame"},
+        {"EcalLumiSpecTruthClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "EcalLumiSpecTruthClusterLinkFrame",
+         "EcalLumiSpecTruthClusterLinkFrame",
 #endif
-       "EcalLumiSpecTruthClusterAssociationFrame"},
-      {.energyWeight = "log", .logWeightBase = 4.6}, app))->SetLevel(JEventLevel::Timeslice));
+         "EcalLumiSpecTruthClusterAssociationFrame"},
+        {.energyWeight = "log", .logWeightBase = 4.6}, app))->SetLevel(JEventLevel::Timeslice));
+  }
 }
 }

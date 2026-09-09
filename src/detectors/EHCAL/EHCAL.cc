@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "algorithms/calorimetry/CalorimeterHitDigiConfig.h"
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 #include "factories/calorimetry/CalorimeterClusterRecoCoG_factory.h"
 #include "factories/calorimetry/CalorimeterClusterShape_factory.h"
@@ -182,126 +183,128 @@ void InitPlugin(JApplication* app) {
   // TrackClusterMergeSplitter (and its SplitMerge cluster chain) is not
   // registered at Timeslice level: it requires ACTS CalorimeterTrackProjections
   // (plus track-cluster matches), which only exist at PhysicsEvent level.
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "HcalEndcapNRawHitFrame", {"EventHeader", "HcalEndcapNHits"},
-      {"HcalEndcapNRawHitFrame",
+  if (eicrecon::eventbuilderEnabled(app)) {
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+        "HcalEndcapNRawHitFrame", {"EventHeader", "HcalEndcapNHits"},
+        {"HcalEndcapNRawHitFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalEndcapNRawHitLinkFrame",
+         "HcalEndcapNRawHitLinkFrame",
 #endif
-       "HcalEndcapNRawHitAssociationFrame"},
-      {
-          .eRes{},
-          .tRes          = 0.0 * dd4hep::ns,
-          .capADC        = HcalEndcapN_capADC,
-          .capTime       = 100, // given in ns, 4 samples in HGCROC
-          .dyRangeADC    = HcalEndcapN_dyRangeADC,
-          .pedMeanADC    = HcalEndcapN_pedMeanADC,
-          .pedSigmaADC   = HcalEndcapN_pedSigmaADC,
-          .resolutionTDC = HcalEndcapN_resolutionTDC,
-          .corrMeanScale = "1.0",
-          .readout       = "HcalEndcapNHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "HcalEndcapNRecHitFrame", {"HcalEndcapNRawHitFrame"}, {"HcalEndcapNRecHitFrame"},
-      {
-          .capADC          = HcalEndcapN_capADC,
-          .dyRangeADC      = HcalEndcapN_dyRangeADC,
-          .pedMeanADC      = HcalEndcapN_pedMeanADC,
-          .pedSigmaADC     = HcalEndcapN_pedSigmaADC,
-          .resolutionTDC   = HcalEndcapN_resolutionTDC,
-          .thresholdFactor = 0.0,
-          .thresholdValue =
-              41.0, // 0.1875 MeV deposition out of 200 MeV max (per layer) --> adc = 10 + 0.1875 / 200 * 32768 == 41
-          .sampFrac =
-              "0.0095", // from latest study - implement at level of reco hits rather than clusters
-          .readout = "HcalEndcapNHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitsMerger_factory>(
-      "HcalEndcapNMergedHitFrame", {"HcalEndcapNRecHitFrame"}, {"HcalEndcapNMergedHitFrame"},
-      {.readout = "HcalEndcapNHits", .fieldTransformations = {"layer:4", "slice:0"}},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
-      "HcalEndcapNTruthProtoClusterFrame", {"HcalEndcapNMergedHitFrame", "HcalEndcapNHits"},
-      {"HcalEndcapNTruthProtoClusterFrame"},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
-      "HcalEndcapNIslandProtoClusterFrame", {"HcalEndcapNMergedHitFrame"},
-      {"HcalEndcapNIslandProtoClusterFrame"},
-      {
-          .adjacencyMatrix{},
-          .peakNeighbourhoodMatrix{},
-          .readout{},
-          .sectorDist  = 5.0 * dd4hep::cm,
-          .localDistXY = {15 * dd4hep::cm, 15 * dd4hep::cm},
-          .localDistXZ{},
-          .localDistYZ{},
-          .globalDistRPhi{},
-          .globalDistEtaPhi{},
-          .dimScaledLocalDistXY{},
-          .splitCluster                  = true,
-          .minClusterHitEdep             = 0.0 * dd4hep::MeV,
-          .minClusterCenterEdep          = 30.0 * dd4hep::MeV,
-          .transverseEnergyProfileMetric = "globalDistEtaPhi",
-          .transverseEnergyProfileScale  = 1.,
-          .transverseEnergyProfileScaleUnits{},
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "HcalEndcapNTruthClustersWithoutShapeFrame",
-      {
-          "HcalEndcapNTruthProtoClusterFrame", // edm4eic::ProtoClusterCollection
+         "HcalEndcapNRawHitAssociationFrame"},
+        {
+            .eRes{},
+            .tRes          = 0.0 * dd4hep::ns,
+            .capADC        = HcalEndcapN_capADC,
+            .capTime       = 100, // given in ns, 4 samples in HGCROC
+            .dyRangeADC    = HcalEndcapN_dyRangeADC,
+            .pedMeanADC    = HcalEndcapN_pedMeanADC,
+            .pedSigmaADC   = HcalEndcapN_pedSigmaADC,
+            .resolutionTDC = HcalEndcapN_resolutionTDC,
+            .corrMeanScale = "1.0",
+            .readout       = "HcalEndcapNHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+        "HcalEndcapNRecHitFrame", {"HcalEndcapNRawHitFrame"}, {"HcalEndcapNRecHitFrame"},
+        {
+            .capADC          = HcalEndcapN_capADC,
+            .dyRangeADC      = HcalEndcapN_dyRangeADC,
+            .pedMeanADC      = HcalEndcapN_pedMeanADC,
+            .pedSigmaADC     = HcalEndcapN_pedSigmaADC,
+            .resolutionTDC   = HcalEndcapN_resolutionTDC,
+            .thresholdFactor = 0.0,
+            .thresholdValue =
+                41.0, // 0.1875 MeV deposition out of 200 MeV max (per layer) --> adc = 10 + 0.1875 / 200 * 32768 == 41
+            .sampFrac =
+                "0.0095", // from latest study - implement at level of reco hits rather than clusters
+            .readout = "HcalEndcapNHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitsMerger_factory>(
+        "HcalEndcapNMergedHitFrame", {"HcalEndcapNRecHitFrame"}, {"HcalEndcapNMergedHitFrame"},
+        {.readout = "HcalEndcapNHits", .fieldTransformations = {"layer:4", "slice:0"}},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
+        "HcalEndcapNTruthProtoClusterFrame", {"HcalEndcapNMergedHitFrame", "HcalEndcapNHits"},
+        {"HcalEndcapNTruthProtoClusterFrame"},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+        "HcalEndcapNIslandProtoClusterFrame", {"HcalEndcapNMergedHitFrame"},
+        {"HcalEndcapNIslandProtoClusterFrame"},
+        {
+            .adjacencyMatrix{},
+            .peakNeighbourhoodMatrix{},
+            .readout{},
+            .sectorDist  = 5.0 * dd4hep::cm,
+            .localDistXY = {15 * dd4hep::cm, 15 * dd4hep::cm},
+            .localDistXZ{},
+            .localDistYZ{},
+            .globalDistRPhi{},
+            .globalDistEtaPhi{},
+            .dimScaledLocalDistXY{},
+            .splitCluster                  = true,
+            .minClusterHitEdep             = 0.0 * dd4hep::MeV,
+            .minClusterCenterEdep          = 30.0 * dd4hep::MeV,
+            .transverseEnergyProfileMetric = "globalDistEtaPhi",
+            .transverseEnergyProfileScale  = 1.,
+            .transverseEnergyProfileScaleUnits{},
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+        "HcalEndcapNTruthClustersWithoutShapeFrame",
+        {
+            "HcalEndcapNTruthProtoClusterFrame", // edm4eic::ProtoClusterCollection
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "HcalEndcapNRawHitLinkFrame", // edm4eic::MCRecoCalorimeterHitLink
+            "HcalEndcapNRawHitLinkFrame", // edm4eic::MCRecoCalorimeterHitLink
 #endif
-          "HcalEndcapNRawHitAssociationFrame" // edm4eic::MCRecoCalorimeterHitAssociationCollection
-      },
-      {"HcalEndcapNTruthClustersWithoutShapeFrame",
+            "HcalEndcapNRawHitAssociationFrame" // edm4eic::MCRecoCalorimeterHitAssociationCollection
+        },
+        {"HcalEndcapNTruthClustersWithoutShapeFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalEndcapNTruthClusterLinksWithoutShapeFrame",
+         "HcalEndcapNTruthClusterLinksWithoutShapeFrame",
 #endif
-       "HcalEndcapNTruthClusterAssociationsWithoutShapeFrame"},
-      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "HcalEndcapNTruthClusterFrame",
-      {"HcalEndcapNTruthClustersWithoutShapeFrame", "HcalEndcapNTruthClusterLinksWithoutShapeFrame"},
-      {"HcalEndcapNTruthClusterFrame",
+         "HcalEndcapNTruthClusterAssociationsWithoutShapeFrame"},
+        {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+        "HcalEndcapNTruthClusterFrame",
+        {"HcalEndcapNTruthClustersWithoutShapeFrame", "HcalEndcapNTruthClusterLinksWithoutShapeFrame"},
+        {"HcalEndcapNTruthClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalEndcapNTruthClusterLinkFrame",
+         "HcalEndcapNTruthClusterLinkFrame",
 #endif
-       "HcalEndcapNTruthClusterAssociationFrame"},
-      {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "HcalEndcapNClustersWithoutShapeFrame",
-      {
-          "HcalEndcapNIslandProtoClusterFrame", // edm4eic::ProtoClusterCollection
+         "HcalEndcapNTruthClusterAssociationFrame"},
+        {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+        "HcalEndcapNClustersWithoutShapeFrame",
+        {
+            "HcalEndcapNIslandProtoClusterFrame", // edm4eic::ProtoClusterCollection
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "HcalEndcapNRawHitLinkFrame", // edm4eic::MCRecoCalorimeterHitLink
+            "HcalEndcapNRawHitLinkFrame", // edm4eic::MCRecoCalorimeterHitLink
 #endif
-          "HcalEndcapNRawHitAssociationFrame" // edm4eic::MCRecoCalorimeterHitAssociationCollection
-      },
-      {"HcalEndcapNClustersWithoutShapeFrame",
+            "HcalEndcapNRawHitAssociationFrame" // edm4eic::MCRecoCalorimeterHitAssociationCollection
+        },
+        {"HcalEndcapNClustersWithoutShapeFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalEndcapNClusterLinksWithoutShapeFrame",
+         "HcalEndcapNClusterLinksWithoutShapeFrame",
 #endif
-       "HcalEndcapNClusterAssociationsWithoutShapeFrame"},
-      {
-          .energyWeight    = "log",
-          .sampFrac        = 1.0,
-          .logWeightBase   = 6.2,
-          .enableEtaBounds = false,
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "HcalEndcapNClusterFrame",
-      {"HcalEndcapNClustersWithoutShapeFrame", "HcalEndcapNClusterLinksWithoutShapeFrame"},
-      {"HcalEndcapNClusterFrame",
+         "HcalEndcapNClusterAssociationsWithoutShapeFrame"},
+        {
+            .energyWeight    = "log",
+            .sampFrac        = 1.0,
+            .logWeightBase   = 6.2,
+            .enableEtaBounds = false,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+        "HcalEndcapNClusterFrame",
+        {"HcalEndcapNClustersWithoutShapeFrame", "HcalEndcapNClusterLinksWithoutShapeFrame"},
+        {"HcalEndcapNClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalEndcapNClusterLinkFrame",
+         "HcalEndcapNClusterLinkFrame",
 #endif
-       "HcalEndcapNClusterAssociationFrame"},
-      {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
+         "HcalEndcapNClusterAssociationFrame"},
+        {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
+  }
 }
 }

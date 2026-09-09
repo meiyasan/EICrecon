@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "algorithms/digi/SiliconChargeSharingConfig.h"
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 #include "factories/digi/EICROCDigitization_factory.h"
 #include "factories/digi/PulseCombiner_factory.h"
@@ -117,72 +118,74 @@ void InitPlugin(JApplication* app) {
   // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
   // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep in
   // sync with the chain above.
-  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
-      "TOFEndcapRawHitFrame", {"EventHeader", "TOFEndcapHits"},
-      {"TOFEndcapRawHitFrame",
+  if (eicrecon::eventbuilderEnabled(app)) {
+    app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+        "TOFEndcapRawHitFrame", {"EventHeader", "TOFEndcapHits"},
+        {"TOFEndcapRawHitFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "TOFEndcapRawHitLinkFrame",
+         "TOFEndcapRawHitLinkFrame",
 #endif
-       "TOFEndcapRawHitAssociationFrame"},
-      {
-          .threshold      = 6.0 * dd4hep::keV,
-          .timeResolution = 0.025,
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+         "TOFEndcapRawHitAssociationFrame"},
+        {
+            .threshold      = 6.0 * dd4hep::keV,
+            .timeResolution = 0.025,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  // Convert raw digitized hits into hits with geometry info (ready for tracking)
-  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
-      "TOFEndcapRecHitFrame", {"TOFEndcapRawHitFrame"}, // Input data collection tags
-      {"TOFEndcapRecHitFrame"},                         // Output data tag
-      {
-          .timeResolution = 0.025,
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+    // Convert raw digitized hits into hits with geometry info (ready for tracking)
+    app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+        "TOFEndcapRecHitFrame", {"TOFEndcapRawHitFrame"}, // Input data collection tags
+        {"TOFEndcapRecHitFrame"},                         // Output data tag
+        {
+            .timeResolution = 0.025,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  // Frame-level mirror of the event-level "bypass" ClusterHits chain above
-  // (ChargeSharing -> Digi -> HitReco -> LGADHitClustering), so the
-  // eventbuilder's unfolder can gate TOF Measurement2D per candidate the same
-  // way it gates hits and clusters. Keep configs in sync with the chain above.
-  app->Add((new JOmniFactoryGeneratorT<SiliconChargeSharing_factory>(
-      "TOFEndcapSharedHitFrame", {"TOFEndcapHits"}, {"TOFEndcapSharedHitFrame"},
-      {
-          .sigma_mode     = SiliconChargeSharingConfig::ESigmaMode::rel,
-          .sigma_sharingx = 0.5,
-          .sigma_sharingy = 0.5,
-          .min_edep       = 6 * dd4hep::keV,
-          .readout        = "TOFEndcapHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+    // Frame-level mirror of the event-level "bypass" ClusterHits chain above
+    // (ChargeSharing -> Digi -> HitReco -> LGADHitClustering), so the
+    // eventbuilder's unfolder can gate TOF Measurement2D per candidate the same
+    // way it gates hits and clusters. Keep configs in sync with the chain above.
+    app->Add((new JOmniFactoryGeneratorT<SiliconChargeSharing_factory>(
+        "TOFEndcapSharedHitFrame", {"TOFEndcapHits"}, {"TOFEndcapSharedHitFrame"},
+        {
+            .sigma_mode     = SiliconChargeSharingConfig::ESigmaMode::rel,
+            .sigma_sharingx = 0.5,
+            .sigma_sharingy = 0.5,
+            .min_edep       = 6 * dd4hep::keV,
+            .readout        = "TOFEndcapHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
-      "TOFEndcapSharedRawHitFrame", {"EventHeader", "TOFEndcapSharedHitFrame"},
-      {"TOFEndcapSharedRawHitFrame",
+    app->Add((new JOmniFactoryGeneratorT<SiliconTrackerDigi_factory>(
+        "TOFEndcapSharedRawHitFrame", {"EventHeader", "TOFEndcapSharedHitFrame"},
+        {"TOFEndcapSharedRawHitFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "TOFEndcapSharedRawHitLinkFrame",
+         "TOFEndcapSharedRawHitLinkFrame",
 #endif
-       "TOFEndcapSharedRawHitAssociationFrame"},
-      {
-          .threshold      = 0.0,
-          .timeResolution = 0.025, // [ns]
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+         "TOFEndcapSharedRawHitAssociationFrame"},
+        {
+            .threshold      = 0.0,
+            .timeResolution = 0.025, // [ns]
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
-      "TOFEndcapSharedRecHitFrame", {"TOFEndcapSharedRawHitFrame"},
-      {"TOFEndcapSharedRecHitFrame"},
-      {
-          .timeResolution = 0.025, // [ns] — keep in sync with the event level
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<TrackerHitReconstruction_factory>(
+        "TOFEndcapSharedRecHitFrame", {"TOFEndcapSharedRawHitFrame"},
+        {"TOFEndcapSharedRecHitFrame"},
+        {
+            .timeResolution = 0.025, // [ns] — keep in sync with the event level
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<LGADHitClustering_factory>(
-      "TOFEndcapClusterHitFrame", {"TOFEndcapSharedRecHitFrame"},
-      {"TOFEndcapClusterHitFrame"},
-      {
-          .readout = "TOFEndcapHits",
-          .useAve  = true,
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<LGADHitClustering_factory>(
+        "TOFEndcapClusterHitFrame", {"TOFEndcapSharedRecHitFrame"},
+        {"TOFEndcapClusterHitFrame"},
+        {
+            .readout = "TOFEndcapHits",
+            .useAve  = true,
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
+  }
 
   //   app->Add(new JOmniFactoryGeneratorT<SiliconChargeSharing_factory>(
   //       "TOFEndcapSharedHitFrame", {"TOFEndcapHitFrame"}, {"TOFEndcapSharedHitFrame"},

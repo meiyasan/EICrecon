@@ -10,6 +10,7 @@
 
 #include "algorithms/calorimetry/CalorimeterHitDigiConfig.h"
 #include "algorithms/calorimetry/CalorimeterIslandClusterConfig.h"
+#include "extensions/jana/EventBuilderEnabled.h"
 #include "extensions/jana/JOmniFactoryGeneratorT.h"
 #include "factories/calorimetry/CalorimeterClusterRecoCoG_factory.h"
 #include "factories/calorimetry/CalorimeterClusterShape_factory.h"
@@ -206,103 +207,105 @@ void InitPlugin(JApplication* app) {
   // Timeslice-level mirror of the chain above for eventbuilder ("Frame" suffix marks the
   // frame-level variant, avoiding collision with the PhysicsEvent-level names above). Keep
   // in sync with the chain above.
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
-      "HcalBarrelRawHitFrame", {"EventHeader", "HcalBarrelHits"},
-      {"HcalBarrelRawHitFrame",
+  if (eicrecon::eventbuilderEnabled(app)) {
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitDigi_factory>(
+        "HcalBarrelRawHitFrame", {"EventHeader", "HcalBarrelHits"},
+        {"HcalBarrelRawHitFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalBarrelRawHitLinkFrame",
+         "HcalBarrelRawHitLinkFrame",
 #endif
-       "HcalBarrelRawHitAssociationFrame"},
-      {
-          .eRes          = {},
-          .tRes          = 0.0 * dd4hep::ns,
-          .threshold     = 0.0,
-          .capADC        = HcalBarrel_capADC,
-          .capTime       = 100,
-          .dyRangeADC    = HcalBarrel_dyRangeADC,
-          .pedMeanADC    = HcalBarrel_pedMeanADC,
-          .pedSigmaADC   = HcalBarrel_pedSigmaADC,
-          .resolutionTDC = HcalBarrel_resolutionTDC,
-          .corrMeanScale = "1.0",
-          .readout       = "HcalBarrelHits",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+         "HcalBarrelRawHitAssociationFrame"},
+        {
+            .eRes          = {},
+            .tRes          = 0.0 * dd4hep::ns,
+            .threshold     = 0.0,
+            .capADC        = HcalBarrel_capADC,
+            .capTime       = 100,
+            .dyRangeADC    = HcalBarrel_dyRangeADC,
+            .pedMeanADC    = HcalBarrel_pedMeanADC,
+            .pedSigmaADC   = HcalBarrel_pedSigmaADC,
+            .resolutionTDC = HcalBarrel_resolutionTDC,
+            .corrMeanScale = "1.0",
+            .readout       = "HcalBarrelHits",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
-      "HcalBarrelRecHitFrame", {"HcalBarrelRawHitFrame"}, {"HcalBarrelRecHitFrame"},
-      {
-          .capADC          = HcalBarrel_capADC,
-          .dyRangeADC      = HcalBarrel_dyRangeADC,
-          .pedMeanADC      = HcalBarrel_pedMeanADC,
-          .pedSigmaADC     = HcalBarrel_pedSigmaADC,
-          .resolutionTDC   = HcalBarrel_resolutionTDC,
-          .timeErrorScale  = HcalBarrel_timeErrorScale,
-          .timeErrorOffset = HcalBarrel_timeErrorOffset,
-          .thresholdFactor = 0.0,
-          .thresholdValue  = 33,
-          .sampFrac        = "0.033",
-          .readout         = "HcalBarrelHits",
-          .layerField      = "",
-          .sectorField     = "",
-      },
-      app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitReco_factory>(
+        "HcalBarrelRecHitFrame", {"HcalBarrelRawHitFrame"}, {"HcalBarrelRecHitFrame"},
+        {
+            .capADC          = HcalBarrel_capADC,
+            .dyRangeADC      = HcalBarrel_dyRangeADC,
+            .pedMeanADC      = HcalBarrel_pedMeanADC,
+            .pedSigmaADC     = HcalBarrel_pedSigmaADC,
+            .resolutionTDC   = HcalBarrel_resolutionTDC,
+            .timeErrorScale  = HcalBarrel_timeErrorScale,
+            .timeErrorOffset = HcalBarrel_timeErrorOffset,
+            .thresholdFactor = 0.0,
+            .thresholdValue  = 33,
+            .sampFrac        = "0.033",
+            .readout         = "HcalBarrelHits",
+            .layerField      = "",
+            .sectorField     = "",
+        },
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterHitsMerger_factory>(
-      "HcalBarrelMergedHitFrame", {"HcalBarrelRecHitFrame"}, {"HcalBarrelMergedHitFrame"},
-      {.readout = "HcalBarrelHits", .fieldTransformations = {"phi:phi"}},
-      app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterHitsMerger_factory>(
+        "HcalBarrelMergedHitFrame", {"HcalBarrelRecHitFrame"}, {"HcalBarrelMergedHitFrame"},
+        {.readout = "HcalBarrelHits", .fieldTransformations = {"phi:phi"}},
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
-      "HcalBarrelTruthProtoClusterFrame", {"HcalBarrelRecHitFrame", "HcalBarrelHits"},
-      {"HcalBarrelTruthProtoClusterFrame"},
-      app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterTruthClustering_factory>(
+        "HcalBarrelTruthProtoClusterFrame", {"HcalBarrelRecHitFrame", "HcalBarrelHits"},
+        {"HcalBarrelTruthProtoClusterFrame"},
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
-      "HcalBarrelIslandProtoClusterFrame", {"HcalBarrelRecHitFrame"},
-      {"HcalBarrelIslandProtoClusterFrame"},
-      {.adjacencyMatrix = HcalBarrel_adjacencyMatrix,
-       .peakNeighbourhoodMatrix{},
-       .readout    = "HcalBarrelHits",
-       .sectorDist = 5.0 * dd4hep::cm,
-       .localDistXY{},
-       .localDistXZ{},
-       .localDistYZ{},
-       .globalDistRPhi{},
-       .globalDistEtaPhi{},
-       .dimScaledLocalDistXY{},
-       .splitCluster                  = false,
-       .minClusterHitEdep             = 5.0 * dd4hep::MeV,
-       .minClusterCenterEdep          = 30.0 * dd4hep::MeV,
-       .transverseEnergyProfileMetric = "globalDistEtaPhi",
-       .transverseEnergyProfileScale  = 1.,
-       .transverseEnergyProfileScaleUnits{}},
-      app))->SetLevel(JEventLevel::Timeslice));
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterIslandCluster_factory>(
+        "HcalBarrelIslandProtoClusterFrame", {"HcalBarrelRecHitFrame"},
+        {"HcalBarrelIslandProtoClusterFrame"},
+        {.adjacencyMatrix = HcalBarrel_adjacencyMatrix,
+         .peakNeighbourhoodMatrix{},
+         .readout    = "HcalBarrelHits",
+         .sectorDist = 5.0 * dd4hep::cm,
+         .localDistXY{},
+         .localDistXZ{},
+         .localDistYZ{},
+         .globalDistRPhi{},
+         .globalDistEtaPhi{},
+         .dimScaledLocalDistXY{},
+         .splitCluster                  = false,
+         .minClusterHitEdep             = 5.0 * dd4hep::MeV,
+         .minClusterCenterEdep          = 30.0 * dd4hep::MeV,
+         .transverseEnergyProfileMetric = "globalDistEtaPhi",
+         .transverseEnergyProfileScale  = 1.,
+         .transverseEnergyProfileScaleUnits{}},
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
-      "HcalBarrelClustersWithoutShapeFrame",
-      {
-          "HcalBarrelIslandProtoClusterFrame",
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterRecoCoG_factory>(
+        "HcalBarrelClustersWithoutShapeFrame",
+        {
+            "HcalBarrelIslandProtoClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-          "HcalBarrelRawHitLinkFrame",
+            "HcalBarrelRawHitLinkFrame",
 #endif
-          "HcalBarrelRawHitAssociationFrame"
-      },
-      {"HcalBarrelClustersWithoutShapeFrame",
+            "HcalBarrelRawHitAssociationFrame"
+        },
+        {"HcalBarrelClustersWithoutShapeFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalBarrelClusterLinksWithoutShapeFrame",
+         "HcalBarrelClusterLinksWithoutShapeFrame",
 #endif
-       "HcalBarrelClusterAssociationsWithoutShapeFrame"},
-      {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
-      app))->SetLevel(JEventLevel::Timeslice));
+         "HcalBarrelClusterAssociationsWithoutShapeFrame"},
+        {.energyWeight = "log", .sampFrac = 1.0, .logWeightBase = 6.2, .enableEtaBounds = false},
+        app))->SetLevel(JEventLevel::Timeslice));
 
-  app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
-      "HcalBarrelClusterFrame",
-      {"HcalBarrelClustersWithoutShapeFrame", "HcalBarrelClusterLinksWithoutShapeFrame"},
-      {"HcalBarrelClusterFrame",
+    app->Add((new JOmniFactoryGeneratorT<CalorimeterClusterShape_factory>(
+        "HcalBarrelClusterFrame",
+        {"HcalBarrelClustersWithoutShapeFrame", "HcalBarrelClusterLinksWithoutShapeFrame"},
+        {"HcalBarrelClusterFrame",
 #if EDM4EIC_BUILD_VERSION >= EDM4EIC_VERSION(8, 7, 0)
-       "HcalBarrelClusterLinkFrame",
+         "HcalBarrelClusterLinkFrame",
 #endif
-       "HcalBarrelClusterAssociationFrame"},
-      {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
+         "HcalBarrelClusterAssociationFrame"},
+        {.energyWeight = "log", .logWeightBase = 6.2}, app))->SetLevel(JEventLevel::Timeslice));
+  }
 }
 }
