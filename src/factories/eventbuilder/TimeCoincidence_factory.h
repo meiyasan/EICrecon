@@ -131,7 +131,7 @@ struct TimeCoincidence_factory : public JOmniFactory<TimeCoincidence_factory<Hit
   typename Base::template PodioInput<edm4hep::EventHeader> m_candidates_in{this, "EventCandidates"};
 
   // Time-aligned input (current frame only).
-  typename Base::template VariadicPodioInput<HitT, true> m_hits_in{this, {}};
+  typename Base::template VariadicPodioInput<HitT, true, true> m_hits_in{this, {}};
 
   // One subset output per detector.
   typename Base::template VariadicPodioOutput<HitT> m_hits_out{this, {}};

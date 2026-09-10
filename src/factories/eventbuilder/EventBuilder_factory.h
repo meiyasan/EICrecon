@@ -350,7 +350,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
       "SiBarrelVertexTimeAlignRecHits",     "SiBarrelTrackerTimeAlignRecHits",
       "SiEndcapTrackerTimeAlignRecHits",    "B0TrackerTimeAlignRecHits"};
 
-  VariadicPodioInput<edm4eic::TrackerHit, true> m_trk_in{this, m_trk_collection_names};
+  VariadicPodioInput<edm4eic::TrackerHit, true, true> m_trk_in{this, m_trk_collection_names};
   PodioInput<edm4hep::MCParticle, true> m_mc_in{this, "MCParticles"};
 
   // Calorimeter clusters (time-aligned, frame level). Used only to compute
@@ -373,7 +373,7 @@ struct EventBuilder_factory : public JOmniFactory<EventBuilder_factory> {
       "HcalBarrelTimeAlignClusters", "HcalEndcapPInsertTimeAlignClusters",
       "LFHCALTimeAlignClusters", "EcalFarForwardZDCTimeAlignClusters",
       "HcalFarForwardZDCTimeAlignClusters", "EcalLumiSpecTimeAlignClusters"};
-  VariadicPodioInput<edm4eic::Cluster, true> m_clu_in{this, m_calo_collection_names};
+  VariadicPodioInput<edm4eic::Cluster, true, true> m_clu_in{this, m_calo_collection_names};
 
   PodioOutput<edm4hep::EventHeader> m_candidates_out{this, "EventCandidates"};
   // One entry per frame (not per candidate): the frame-constant

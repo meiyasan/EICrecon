@@ -109,7 +109,21 @@ public:
     }
   };
 
-  template <typename PodioT, bool IsOptional = false> class VariadicPodioInput : public InputBase {
+  /// Variadic podio input.
+  ///
+  /// With IsOptional, a collection that cannot be fetched no longer fails the
+  /// factory. KeepPositions then decides what the gap reads back as:
+  ///
+  ///   - false (the default, and what every consumer outside the EventBuilder
+  ///     expects): the absent collection is dropped, so operator() hands back
+  ///     only the collections that did resolve. CollectionCollector_factory,
+  ///     for one, wraps every element in gsl::not_null, which std::terminate()s
+  ///     on a nullptr.
+  ///   - true: the absent collection keeps its slot and reads back as nullptr,
+  ///     so input index i still lines up with output index i and with a
+  ///     hardcoded per-detector name list. Such consumers must null-check.
+  template <typename PodioT, bool IsOptional = false, bool KeepPositions = false>
+  class VariadicPodioInput : public InputBase {
 
     std::vector<const typename PodioTypeMap<PodioT>::collection_t*> m_data;
 
@@ -132,13 +146,21 @@ public:
       m_data.clear();
       for (auto& coll_name : this->collection_names) {
         try {
-          m_data.push_back(event.GetCollection<PodioT>(coll_name, !IsOptional));
+          // With IsOptional this does not throw on a missing databundle, it
+          // returns nullptr, so the drop below has to cover that too.
+          const auto* coll = event.GetCollection<PodioT>(coll_name, !IsOptional);
+          if constexpr (IsOptional && !KeepPositions) {
+            if (coll == nullptr) {
+              continue;
+            }
+          }
+          m_data.push_back(coll);
         } catch (const JException& e) {
           if constexpr (!IsOptional) {
             throw JException("JOmniFactory: Failed to get collection %s: %s", coll_name.c_str(),
                              e.what());
-          } else {
-            // Preserve positional alignment: input index i must keep matching
+          } else if constexpr (KeepPositions) {
+            // Keep positional alignment: input index i must go on matching
             // output index i even when an optional collection is absent.
             m_data.push_back(nullptr);
           }

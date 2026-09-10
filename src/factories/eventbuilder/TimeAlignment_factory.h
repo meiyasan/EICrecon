@@ -110,7 +110,7 @@ struct TimeAlignment_factory
   static constexpr bool kDeposits = std::is_same_v<HitT, edm4eic::TrackerHit>;
 
   // Collection names supplied by the wiring (see eventbuilder.cc).
-  typename Base::template VariadicPodioInput<HitT, true> m_in{this, {}};
+  typename Base::template VariadicPodioInput<HitT, true, true> m_in{this, {}};
   typename Base::template VariadicPodioOutput<HitT>      m_out{this, {}};
 
   using SlowLink = podio::Link<edm4eic::RawTrackerHit, edm4hep::SimTrackerHit>;

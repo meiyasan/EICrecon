@@ -109,7 +109,7 @@ struct EventPrefilter_factory : public JOmniFactory<EventPrefilter_factory> {
       "BackwardMPGDEndcapTrkCoincRecHits", "ForwardMPGDEndcapTrkCoincRecHits",
       "SiBarrelVertexTimeCoincRecHits",    "SiBarrelTrackerTimeCoincRecHits",
       "SiEndcapTrackerTimeCoincRecHits",   "B0TrackerTimeCoincRecHits"};
-  VariadicPodioInput<edm4eic::TrackerHit, true> m_trk_hits_in{this, m_trk_hit_names};
+  VariadicPodioInput<edm4eic::TrackerHit, true, true> m_trk_hits_in{this, m_trk_hit_names};
 
   // Calo clusters, gated by CalTimeCoincidence (time, plus an optional
   // energy floor). A different EDM4hep type than tracking hits, so this
@@ -125,7 +125,7 @@ struct EventPrefilter_factory : public JOmniFactory<EventPrefilter_factory> {
       "HcalBarrelCoincClusters",       "HcalEndcapPInsertCoincClusters",
       "LFHCALCoincClusters",           "EcalFarForwardZDCCoincClusters",
       "HcalFarForwardZDCCoincClusters", "EcalLumiSpecCoincClusters"};
-  VariadicPodioInput<edm4eic::Cluster, true> m_calo_in{this, m_calo_cluster_names};
+  VariadicPodioInput<edm4eic::Cluster, true, true> m_calo_in{this, m_calo_cluster_names};
 
   PodioOutput<edm4hep::EventHeader>             m_candidates_out{this, "EventCandidatesFiltered"};
   // Frame-level GNN class probabilities. Always computed and stored when a
