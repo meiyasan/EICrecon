@@ -14,6 +14,10 @@ struct SiliconTrackerDigiConfig {
   double threshold = 0 * dd4hep::keV;
   // Gaussian sigma of the hit time smearing
   double timeResolution = 8 * edm4eic::unit::ns;
+  // if > 0, the hit time is the middle of the readout frame it falls in (frame length in ns,
+  // frames start at integrationPhase), as for MAPS sensors; timeResolution is then not used
+  double integrationTime  = 0 * edm4eic::unit::ns;
+  double integrationPhase = 0 * edm4eic::unit::ns;
 };
 
 } // namespace eicrecon
